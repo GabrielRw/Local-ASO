@@ -1,0 +1,2 @@
+# Run daily at 09:00 in the machine's local timezone. Replace the absolute path.
+0 9 * * * cd /absolute/path/to/local-aso-tracker && .venv/bin/aso --quiet check --only-missing-today

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Local ASO Tracker</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark"><i></i><i></i><i></i></span><span>Local ASO</span></div>
+      <nav class="toolkit" aria-label="Growth toolkit">
+        <p class="section-kicker">Growth toolkit</p>
+        <button class="nav-item active" data-tab-target="rankings"><span class="nav-icon">↗</span>Rank tracking</button>
+        <button class="nav-item" data-tab-target="health"><span class="nav-icon">✦</span>Listing health</button>
+        <button class="nav-item" data-tab-target="compare"><span class="nav-icon">⇄</span>Competitor view</button>
+      </nav>
+      <div class="apps-heading">
+        <div><h2>My apps</h2><p id="appCount">—</p></div>
+        <button class="button button-small button-primary" id="addAppButton">+ Add app</button>
+      </div>
+      <div class="app-list" id="appList" aria-live="polite"></div>
+      <div class="sidebar-foot">
+        <button class="setup-link" id="setupButton" disabled><span aria-hidden="true">⚙</span> Setup guide</button>
+        <span><i class="status-dot"></i>Local database connected</span>
+        <span>v0.5.0</span>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="mobile-header"><button id="menuButton" class="icon-button" aria-label="Open app menu">☰</button><span>Local ASO</span></header>
+      <div class="content-wrap">
+        <section class="app-hero card" id="appHero">
+          <div class="skeleton hero-skeleton"></div>
+        </section>
+
+        <div class="tabs-bar">
+          <div class="tabs" role="tablist" aria-label="App insights">
+            <button class="tab active" role="tab" data-tab="rankings">Keywords</button>
+            <button class="tab" role="tab" data-tab="health">Listing health</button>
+            <button class="tab" role="tab" data-tab="compare">Competitors</button>
+          </div>
+          <div class="toolbar-actions">
+            <label class="select-wrap"><span>Storefront</span><select id="countrySelect" aria-label="Storefront"></select></label>
+            <label class="select-wrap"><span>Device</span><select id="deviceSelect" aria-label="Device"><option value="iphone">iPhone</option><option value="ipad">iPad</option></select></label>
+            <button class="button button-ghost" id="runCheckButton"><span class="sync-icon">↻</span> Run check</button>
+            <button class="button button-primary" id="addKeywordButton">+ Add keyword</button>
+          </div>
+        </div>
+
+        <section class="tab-panel active" id="rankingsPanel" data-panel="rankings">
+          <div class="metric-grid" id="metrics"></div>
+          <section class="data-card card">
+            <div class="data-head">
+              <div><p class="section-kicker">Search visibility</p><h2>Keyword rankings</h2></div>
+              <label class="search-field"><span>⌕</span><input id="keywordFilter" type="search" placeholder="Filter keywords"></label>
+            </div>
+            <div class="method-note"><span>Live methodology</span> Rankings use Apple’s public search results for the selected country and device. A missing app is shown as &gt;limit—not an exact rank beyond the returned results.</div>
+            <div class="table-scroll">
+              <table class="rank-table">
+                <thead><tr><th>Keyword</th><th>Country</th><th>Device</th><th>Rank</th><th>Change</th><th>Signal</th><th>Updated</th><th></th></tr></thead>
+                <tbody id="rankingsBody"></tbody>
+              </table>
+            </div>
+            <div class="empty-state" id="rankingsEmpty" hidden><div class="empty-icon">⌕</div><h3>No ranking data yet</h3><p>Add a keyword, then run a check to start building history.</p></div>
+          </section>
+          <section class="history-card card" id="historyCard" hidden>
+            <div class="history-head"><div><p class="section-kicker">Selected keyword</p><h2 id="historyTitle">Rank history</h2></div><div class="history-legend"><span></span>Higher is better</div></div>
+            <div id="historyChart" class="chart-wrap"></div>
+          </section>
+        </section>
+
+        <section class="tab-panel" id="healthPanel" data-panel="health">
+          <div class="health-layout">
+            <section class="card health-score-card" id="healthScoreCard"></section>
+            <section class="card breakdown-card"><div class="data-head"><div><p class="section-kicker">Transparent heuristic</p><h2>Score breakdown</h2></div></div><div id="healthBreakdown"></div></section>
+          </div>
+          <section class="card screenshot-card">
+            <div class="data-head"><div><p class="section-kicker">Apple listing media</p><h2>Screenshot preview</h2></div><span class="availability-badge" id="screenshotAvailability">Checking…</span></div>
+            <div id="screenshotGallery" aria-live="polite"></div>
+          </section>
+          <section class="card suggestion-card"><div class="data-head"><div><p class="section-kicker">Listing improvements</p><h2>Recommended next moves</h2></div></div><div id="healthSuggestions"></div><p class="methodology-small" id="healthMethodology"></p></section>
+        </section>
+
+        <section class="tab-panel" id="comparePanel" data-panel="compare">
+          <section class="card compare-control">
+            <div><p class="section-kicker">Competitor insights</p><h2>Compare public listing signals</h2><p>Choose another configured app. Both columns are fetched from Apple’s public listing data for the selected storefront.</p></div>
+            <div class="compare-picker"><select id="competitorSelect" aria-label="Competitor app"></select><button class="button button-primary" id="compareButton">Compare apps</button></div>
+          </section>
+          <section class="card comparison-card" id="comparisonCard">
+            <div class="empty-state"><div class="empty-icon">⇄</div><h3>Select a competitor</h3><p>Add another app to your local tracker, then compare listing completeness side by side.</p></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog class="modal onboarding-modal" id="onboardingModal" aria-labelledby="onboardingTitle" aria-describedby="onboardingIntro">
+    <form id="onboardingForm" novalidate>
+      <div class="onboarding-top"><span class="onboarding-brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>Local ASO</span><button type="button" id="onboardingClose" class="icon-button" aria-label="Close setup">×</button></div>
+      <ol class="onboarding-progress" aria-label="Setup progress">
+        <li data-setup-progress="0"><span>1</span>Your app</li>
+        <li data-setup-progress="1"><span>2</span>Start tracking</li>
+      </ol>
+      <div class="onboarding-heading"><p class="section-kicker" id="onboardingStepLabel">Step 1 of 2</p><h2 id="onboardingTitle" tabindex="-1">A little setup. A clearer view.</h2><p id="onboardingIntro">Choose your app and storefront. Your workspace stays on this computer.</p></div>
+
+      <section data-setup-step="0">
+        <div class="onboarding-tip"><span aria-hidden="true">↗</span><p><strong>No account or API keys needed.</strong> Track rankings using Apple’s public App Store search results. Your data stays in your local workspace.</p></div>
+        <label class="field" id="onboardingExistingField" hidden><span>Use an app already in your workspace</span><select id="onboardingExistingApp"></select></label>
+        <label class="field" id="onboardingAppIdField"><span>App Store link or app ID</span><input id="onboardingAppId" autocomplete="off" placeholder="https://apps.apple.com/…/id123456789"><small>Open your app’s App Store page and copy the link, or enter the number after “id”.</small></label>
+        <label class="field"><span>First storefront</span><select id="onboardingCountry"></select><small>You can add more storefronts and switch between iPhone and iPad later.</small></label>
+      </section>
+
+      <section data-setup-step="1" hidden>
+        <div class="setup-summary" id="onboardingSummary"></div>
+        <label class="field"><span>Your first keywords <small>Optional</small></span><textarea id="onboardingKeywords" rows="3" placeholder="keyword, another keyword, search phrase"></textarea><small>Separate terms with commas or new lines. We’ll check their rankings automatically.</small></label>
+        <label class="field"><span>Device</span><select id="onboardingDevice"><option value="iphone">iPhone</option><option value="ipad">iPad</option></select></label>
+        <p class="setup-next" id="onboardingNextTip"></p>
+      </section>
+
+      <p class="setup-error" id="onboardingError" role="alert" hidden></p>
+      <div class="onboarding-actions"><button type="button" class="button button-ghost" id="onboardingBack" hidden>Back</button><button type="submit" class="button button-primary" id="onboardingNext">Continue</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="keywordModal">
+    <form method="dialog" id="keywordForm">
+      <div class="modal-head"><div><p class="section-kicker">New tracking target</p><h2>Add keyword</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
+      <label class="field"><span>Keywords</span><textarea id="keywordInput" required rows="4" placeholder="learn astrology, birth chart, astrology course" autocomplete="off"></textarea><small>Separate keywords with commas or new lines. Duplicates are ignored.</small></label>
+      <fieldset class="country-fieldset"><legend>Track in storefronts</legend><div id="countryChecks" class="country-checks"></div></fieldset>
+      <fieldset class="country-fieldset"><legend>Track on devices</legend><div id="deviceChecks" class="country-checks device-checks"><label class="country-check"><input type="checkbox" name="device" value="iphone" checked><span>▯ <strong>iPhone</strong></span></label><label class="country-check"><input type="checkbox" name="device" value="ipad"><span>▭ <strong>iPad</strong></span></label></div></fieldset>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="submit" value="default" class="button button-primary">Add keywords</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="appModal">
+    <form method="dialog" id="appForm">
+      <div class="modal-head"><div><p class="section-kicker">Apple public lookup</p><h2>Add app</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
+      <label class="field"><span>Numerical Apple app ID</span><input id="appleIdInput" required inputmode="numeric" pattern="[0-9]+" placeholder="6771773264" autocomplete="off"></label>
+      <label class="field"><span>Lookup storefront</span><select id="appCountrySelect"></select></label>
+      <p class="modal-note">The name, bundle ID, artwork and listing details are retrieved directly from Apple. No private API is used.</p>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="submit" value="default" class="button button-primary">Add from Apple</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal confirm-modal" id="confirmModal">
+    <div class="confirm-content">
+      <div class="empty-icon">×</div>
+      <h2>Stop tracking this keyword?</h2>
+      <p>The target will be deactivated, but all existing rank history will stay in your local database.</p>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Keep tracking</button><button type="button" class="button button-danger" id="confirmDeactivateButton">Stop tracking</button></div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="busy" id="busy" hidden><span></span><p>Working locally…</p></div>
+  <script src="/app.js" defer></script>
+  <script src="/onboarding.js" defer></script>
+</body>
+</html>

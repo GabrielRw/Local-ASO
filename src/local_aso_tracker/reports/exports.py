@@ -27,6 +27,10 @@ def export_latest_csv(session: Session, targets: list[TrackingTarget], output: P
                 "device",
                 "rank",
                 "found",
+                "volume_estimate",
+                "difficulty_estimate",
+                "estimate_sample_size",
+                "estimate_model_version",
                 "previous_rank",
                 "change",
                 "checked_at",
@@ -46,6 +50,22 @@ def export_latest_csv(session: Session, targets: list[TrackingTarget], output: P
                     "device": target.device,
                     "rank": latest.rank if latest.rank is not None else f">{latest.result_limit}",
                     "found": latest.found,
+                    "volume_estimate": (
+                        latest.estimate.volume
+                        if latest.estimate and latest.estimate.volume is not None
+                        else ""
+                    ),
+                    "difficulty_estimate": (
+                        latest.estimate.difficulty
+                        if latest.estimate and latest.estimate.difficulty is not None
+                        else ""
+                    ),
+                    "estimate_sample_size": (
+                        latest.estimate.sample_size if latest.estimate else ""
+                    ),
+                    "estimate_model_version": (
+                        latest.estimate.model_version if latest.estimate else ""
+                    ),
                     "previous_rank": previous.rank
                     if previous and previous.rank is not None
                     else "",
@@ -71,6 +91,10 @@ def export_history_csv(session: Session, targets: list[TrackingTarget], output: 
                 "device",
                 "rank",
                 "found",
+                "volume_estimate",
+                "difficulty_estimate",
+                "estimate_sample_size",
+                "estimate_model_version",
                 "checked_at",
                 "result_limit",
                 "total_results_reported",
@@ -90,6 +114,20 @@ def export_history_csv(session: Session, targets: list[TrackingTarget], output: 
                     "device": target.device,
                     "rank": check.rank if check.rank is not None else f">{check.result_limit}",
                     "found": check.found,
+                    "volume_estimate": (
+                        check.estimate.volume
+                        if check.estimate and check.estimate.volume is not None
+                        else ""
+                    ),
+                    "difficulty_estimate": (
+                        check.estimate.difficulty
+                        if check.estimate and check.estimate.difficulty is not None
+                        else ""
+                    ),
+                    "estimate_sample_size": check.estimate.sample_size if check.estimate else "",
+                    "estimate_model_version": (
+                        check.estimate.model_version if check.estimate else ""
+                    ),
                     "checked_at": check.checked_at.isoformat(),
                     "result_limit": check.result_limit,
                     "total_results_reported": check.total_results_reported,
@@ -110,6 +148,11 @@ def export_json(session: Session, targets: list[TrackingTarget], output: Path) -
             "One-based position in Apple's public software or iPadSoftware search response; "
             "absence is not an exact rank."
         ),
+        "estimate_methodology": (
+            "Volume and difficulty are local 0-100 estimates derived from ratings attached "
+            "to up to 10 matching Apple search results. They are not Apple search volume, "
+            "download counts, or an Apple score."
+        ),
         "rankings": [
             _ranking_dict(RankingRow(target, latest, previous))
             for target in targets
@@ -125,6 +168,12 @@ def export_json(session: Session, targets: list[TrackingTarget], output: Path) -
                 "device": target_map[check.tracking_target_id].device,
                 "rank": check.rank,
                 "found": check.found,
+                "volume_estimate": check.estimate.volume if check.estimate else None,
+                "difficulty_estimate": check.estimate.difficulty if check.estimate else None,
+                "estimate_sample_size": check.estimate.sample_size if check.estimate else None,
+                "estimate_model_version": (
+                    check.estimate.model_version if check.estimate else None
+                ),
                 "result_limit": check.result_limit,
                 "checked_at": check.checked_at.isoformat(),
             }
@@ -145,6 +194,12 @@ def _ranking_dict(row: RankingRow) -> dict[str, object]:
         "device": row.target.device,
         "rank": row.latest.rank,
         "found": row.latest.found,
+        "volume_estimate": row.latest.estimate.volume if row.latest.estimate else None,
+        "difficulty_estimate": row.latest.estimate.difficulty if row.latest.estimate else None,
+        "estimate_sample_size": (row.latest.estimate.sample_size if row.latest.estimate else None),
+        "estimate_model_version": (
+            row.latest.estimate.model_version if row.latest.estimate else None
+        ),
         "result_limit": row.latest.result_limit,
         "previous_rank": row.previous.rank if row.previous else None,
         "change": row.change,

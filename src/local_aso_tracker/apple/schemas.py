@@ -12,6 +12,9 @@ class AppleSoftwareResult(BaseModel):
     track_name: str | None = Field(default=None, alias="trackName")
     version: str | None = None
     track_view_url: str | None = Field(default=None, alias="trackViewUrl")
+    artwork_url_100: str | None = Field(default=None, alias="artworkUrl100")
+    user_rating_count: int | None = Field(default=None, alias="userRatingCount", ge=0)
+    average_user_rating: float | None = Field(default=None, alias="averageUserRating", ge=0, le=5)
 
 
 class AppleSearchResponse(BaseModel):

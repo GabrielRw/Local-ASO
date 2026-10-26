@@ -9,8 +9,10 @@ from typer.testing import CliRunner
 
 from local_aso_tracker.apple.listing import AppleListing
 from local_aso_tracker.cli import app
+from local_aso_tracker.config import load_settings
 from local_aso_tracker.database import run_migrations, session_scope
 from local_aso_tracker.models import App, DashboardOnboarding, Storefront
+from local_aso_tracker.services.agent import AgentProvider
 from local_aso_tracker.web.server import DashboardService
 
 
@@ -61,6 +63,27 @@ def test_existing_workspace_does_not_interrupt_dashboard(
     payload = fresh_dashboard.bootstrap(None, None)
     assert payload["onboarding"] == {"completed": False, "shouldOpen": False}
     assert "appleAds" not in payload
+
+
+def test_onboarding_can_persist_the_selected_research_agent(
+    fresh_dashboard: DashboardService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "local_aso_tracker.web.server.provider_status",
+        lambda: [
+            AgentProvider("codex", "Codex", True),
+            AgentProvider("claude", "Claude", True),
+        ],
+    )
+    payload = fresh_dashboard.bootstrap(None, None)
+    assert [provider["id"] for provider in payload["agentProviders"]] == [  # type: ignore[index]
+        "codex",
+        "claude",
+    ]
+
+    assert fresh_dashboard.save_agent_provider({"provider": "claude"}) == {"provider": "claude"}
+    assert load_settings().agent_provider == "claude"
 
 
 def test_legacy_credentials_are_not_read_or_returned(

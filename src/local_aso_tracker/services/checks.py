@@ -17,7 +17,8 @@ from local_aso_tracker.apple.client import (
     extract_rank,
 )
 from local_aso_tracker.config import Settings
-from local_aso_tracker.models import RankCheck, TrackingTarget
+from local_aso_tracker.models import RankCheck, RankEstimate, RankTopApp, TrackingTarget
+from local_aso_tracker.services.estimates import ESTIMATE_VERSION, estimate_keyword
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,7 @@ async def run_checks_async(
             continue
         for target in pair_targets:
             extracted = extract_rank(outcome.response, target.app.apple_app_id)
+            estimates = estimate_keyword(outcome.response.results)
             returned = extracted.app
             check = RankCheck(
                 tracking_target_id=target.id,
@@ -105,6 +107,24 @@ async def run_checks_async(
                 status="success",
                 error_message=None,
             )
+            check.estimate = RankEstimate(
+                volume=estimates.volume,
+                difficulty=estimates.difficulty,
+                sample_size=estimates.sample_size,
+                model_version=ESTIMATE_VERSION,
+            )
+            check.top_apps = [
+                RankTopApp(
+                    position=position,
+                    track_id=result.track_id,
+                    name=result.track_name or f"App {result.track_id}",
+                    artwork_url=result.artwork_url_100,
+                )
+                for position, result in enumerate(
+                    outcome.response.results[:5],
+                    start=1,
+                )
+            ]
             session.add(check)
             checks.append(check)
             if progress:

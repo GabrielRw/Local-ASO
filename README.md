@@ -4,14 +4,22 @@ Local ASO Tracker is an open-source, local-first App Store keyword rank tracker 
 
 There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. The backend uses Apple’s public iTunes Search API; the dashboard can render artwork and screenshots hosted by Apple. No Apple login or API keys are required.
 
-> This tracks public search-result positions, not guaranteed on-device App Store ranks. It does not provide keyword popularity, search volume, downloads, or keyword difficulty.
+> This tracks public search-result positions, not guaranteed on-device App Store ranks. Apple does not expose search volume or downloads, so the dashboard's volume and difficulty values are clearly labeled local estimates derived from matching-app ratings.
 
 ## Features
 
 - Local dashboard with app switching, country flags, and separate iPhone/iPad rankings.
 - Batch keyword entry using commas or new lines, with an automatic first check.
+- Curated English, French, and Spanish keyword localization with a preview before adding targets.
 - Current ranks, rank changes, rank-history charts, and rank-based opportunity groups.
+- Overall daily average-rank trend for all tracked keywords in the selected storefront and device.
+- Non-blocking full-catalog synchronization at dashboard startup and once every 24 hours while it remains open.
+- “Losing to” leaderboard counting Top 5 competitors that appear ahead across the current keyword set.
+- Ratings-based audience and top-10 competition estimates, stored separately with each successful check.
+- App-wide Niche research boards powered by a locally installed Codex or Claude CLI, with unlimited country columns and on-demand refreshes.
+- The first five returned apps for each keyword, displayed as Apple artwork with hover/focus names.
 - Public listing-health review, screenshot previews when available, and competitor comparison.
+- Three-step listing keyword-coverage audit with locally saved title, subtitle, and keyword field.
 - CLI commands for managing apps, keywords, storefronts, and tracking targets.
 - CSV/JSON exports and a self-contained HTML report that can be opened offline.
 - SQLite persistence, idempotent setup, and optional scheduling through your operating system.
@@ -20,6 +28,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 
 - [Quick start](#quick-start)
 - [Using the dashboard](#using-the-dashboard)
+- [Niche research](#niche-research)
+- [Local MCP server](#local-mcp-server)
 - [CLI-only first setup](#cli-only-first-setup)
 - [Ranking methodology and limits](#what-it-measuresand-what-it-does-not)
 - [Storage and configuration](#storage-and-configuration)
@@ -57,10 +67,11 @@ uv run aso dashboard
 
 The command initializes the database and opens [http://127.0.0.1:8765/](http://127.0.0.1:8765/) in your default browser. Keep the terminal running while you use the dashboard; press `Ctrl+C` there to stop it.
 
-On the first launch, the two-step setup guide asks you to:
+On the first launch, the three-step setup guide asks you to:
 
 1. Paste your app’s App Store URL or numerical app ID and choose its storefront.
 2. Enter keywords separated by commas or new lines, select iPhone or iPad, and open the dashboard. Keywords are optional; if supplied, their first ranking check runs automatically.
+3. Choose Auto-detect, Codex, or Claude as the preferred local agent for Niche research. Unavailable CLIs are disabled.
 
 For example, the app ID in `https://apps.apple.com/us/app/example/id123456789` is `123456789`. Use your real App Store ID, not your bundle ID or an Apple Ads account ID.
 
@@ -73,19 +84,71 @@ uv run aso dashboard --no-open --port 8766
 
 When using a different port, open the URL printed in the terminal. On Windows, the same `git`, `uv sync`, and `uv run` commands work in PowerShell.
 
+The dashboard also starts a local MCP endpoint at `http://127.0.0.1:8766/mcp`. Use `--no-mcp` to disable it or `--mcp-port` to choose another loopback port:
+
+```bash
+uv run aso dashboard --no-open
+uv run aso dashboard --no-open --mcp-port 8767
+uv run aso dashboard --no-open --no-mcp
+```
+
 ## Using the dashboard
 
-1. **Choose an app.** Use the app list in the left sidebar. **+ Add app** imports another app by numerical App Store ID; its public name and listing details come from Apple.
+1. **Choose an app.** Use the app list in the left sidebar. **+ Add app** imports another app by numerical App Store ID; its public name and listing details come from Apple. The small **×** on an app row removes it from the visible workspace after confirmation while preserving its tracking and history. Adding the same App Store ID again restores it.
 2. **Choose a country and device.** The storefront and device selectors control the visible ranking rows. iPhone and iPad have independent tracking targets and history; changing devices does not combine their ranks.
-3. **Add keywords.** Click **+ Add keyword**, enter terms such as `notes, quick notes, daily journal`, then select one or more storefronts and devices. Duplicates are ignored. Each selected combination receives an automatic first rank check.
+3. **Add keywords.** Click **+ Add keyword**, enter terms such as `notes, quick notes, daily journal`, then select one or more storefronts and devices. Duplicates are ignored. Each selected combination receives an automatic first rank check. **Localize selected** previews curated French and Spanish market phrases before anything is added.
 4. **Refresh results.** Use **Run check** for the selected app, storefront, and device. Later checks create history rather than overwriting previous results. Apple failures are reported so you can retry.
-5. **Explore history.** Filter the keyword table, then click a keyword row to see its historical ranks. Better ranks are shown higher in the chart. Use **×** to stop tracking a target without deleting its existing history.
+5. **Explore history.** Filter the keyword table, then click a keyword row to see its historical ranks. Better ranks are shown higher in the chart. The **Overall rank trend** card at the bottom aggregates the daily average of found keywords across the selected storefront/device. Use **×** to stop tracking a target without deleting its existing history.
 6. **Review the listing.** The **Listing health** tab shows a public-data completeness heuristic, a score breakdown, screenshots when Apple returns their URLs, and suggested improvements. This is not an Apple score.
-7. **Compare apps.** Add a competitor to your app list, open **Competitors**, choose it, and compare the publicly returned listing fields side by side.
+7. **Audit keyword coverage.** In **Listing health**, choose the main listing storefront, load the App Store name, and paste the subtitle and keyword field from App Store Connect. The local three-step audit saves these fields for that app/storefront and reports target terms, tracked keyword matches, and how many already have ranking positions.
+8. **Compare apps.** Add a competitor to your app list, open **Competitors**, choose it, and compare the publicly returned listing fields side by side.
 
 **Setup guide** in the sidebar reopens onboarding anytime. The default storefront catalog includes Australia, Canada, France, the United Kingdom, and the United States. To add another storefront, use the [country CLI commands](#countries), then refresh the dashboard.
 
 The dashboard is a local tool without authentication. Keep the default loopback address; do not expose it on a public server or bind it to an untrusted network.
+
+When the dashboard starts, a daemon worker begins refreshing every active app/keyword/storefront/device target in the background. The first run starts immediately and subsequent runs start every 24 hours while the process stays open. The dashboard remains responsive, a later launch starts a fresh sync, and overlapping automatic runs are prevented. The page polls local sync status and refreshes its visible rankings when a run completes. Apple still enforces its own rate limits, so large catalogs can take time to finish.
+
+## Niche research
+
+**Niche research** is an app-wide keyword workspace. It is intentionally independent from the apps in the left sidebar and does not use an app's rank history.
+
+1. Open **Niche research**, describe the audience or product idea, and choose **Codex**, **Claude**, or **Auto-detect**.
+2. **Brainstorm 10 keywords** asks the selected CLI for keyword phrases only. The local model never supplies volume, difficulty, or rank values.
+3. The board creates one column for each selected storefront and runs the first public Apple search check automatically. Add or remove storefront columns at any time; the table scrolls horizontally as the board grows.
+4. **Check now** refreshes every keyword/storefront pair. Cell values are the same transparent 0–100 ratings-based volume and difficulty estimates used elsewhere in the dashboard. A successful search with no public rating signals is shown as **No rated matches**, while an Apple request failure is shown as **Check failed**.
+5. Use the right-hand agent input to request more phrases, such as `Add 5 beginner keywords`. New phrases are deduplicated, appended to the board, and checked across every board storefront automatically.
+
+The discovery step invokes the locally installed `codex` or `claude` executable in non-interactive mode. Only the niche brief, existing keyword phrases, and your instruction are passed to that CLI. Authentication, account limits, and model usage belong to the local CLI you choose; the dashboard stores only the returned keyword phrases and the provider name in SQLite. If neither CLI is available, the provider is shown as unavailable and no remote fallback is used.
+
+The optional agent settings in `config.toml` are:
+
+```toml
+agent_provider = "auto"
+agent_timeout = 120.0
+```
+
+## Local MCP server
+
+While `aso dashboard` is running, connect a local MCP client to:
+
+```text
+http://127.0.0.1:8766/mcp
+```
+
+The server exposes read and controlled action tools backed by the same SQLite database:
+
+- `list_apps` lists configured apps and App Store IDs.
+- `list_storefronts` lists supported countries.
+- `get_keyword_rankings` returns current ranks, estimate fields, and Top 5 competitors.
+- `get_app_summary` returns visibility totals plus 7-day and 30-day changes.
+- `get_listing_coverage` analyses saved title, subtitle, and keyword-field metadata.
+- `add_app` adds or restores an app using Apple's public listing lookup.
+- `add_keywords` adds keywords across storefronts and devices, with an optional automatic check.
+- `run_checks` refreshes a bounded selection of active keyword targets.
+- `stop_tracking_keywords` deactivates matching targets while retaining their history.
+
+Action tools update the same SQLite database shown in the dashboard. `add_app`, `add_keywords`, and `run_checks` can contact Apple's public API. Bulk checks are capped at 50 keyword-market-device searches per call; split larger jobs into batches. History deletion is not exposed through MCP. The endpoint binds only to loopback. Dashboard and MCP start together; stop the dashboard process to stop both.
 
 ## CLI-only first setup
 
@@ -128,7 +191,17 @@ It locates the app by numerical `trackId`; the one-based array position is saved
 
 This method approximates App Store search visibility. Country storefronts matter, and Apple may personalize, reorder, or experiment with results, so a specific device can differ. The Search API also sometimes returns fewer than the requested 200 results. The tracker stores Apple’s reported `resultCount` alongside the configured window.
 
-The public Search API does **not** provide keyword search volume. The tracker measures rank, not popularity, and never fabricates popularity, download estimates, or keyword difficulty.
+The public Search API does **not** provide keyword search volume, downloads, or an official difficulty score. It does return app rating counts and average ratings, which the dashboard can use for transparent, reproducible estimates.
+
+The public lookup API provides the localized app name, but it does not expose the App Store subtitle or keyword field. The coverage audit asks you to paste those two values from App Store Connect, stores them only in local SQLite, and never uploads them.
+
+For each successful search, the tracker considers up to the first 10 returned apps:
+
+- **Volume estimate (0–100)** is a position-weighted mean of `log1p(userRatingCount)`. Positions higher in Apple's relevance-ordered results carry more weight. The result is scaled to the 0–100 range and reduced when fewer than five matching apps expose ratings.
+- **Difficulty estimate (0–100)** combines the weighted rating-count strength of matching apps, their average ratings, and the number of the first five results that expose ratings. A higher value indicates stronger rating signals among incumbents.
+- These estimates are attached to the exact rank check that produced them in a separate `rank_estimates` table with a model version. Existing checks are not backfilled because the original result payloads are not retained.
+
+The volume estimate is not Apple search volume and must not be interpreted as downloads. Difficulty is not an Apple score. Both depend on the public result window and rating data Apple returns. A result set with no exposed ratings produces `—` rather than a made-up zero or positive value.
 
 ## Storage and configuration
 
@@ -167,6 +240,8 @@ retry_count = 3
 request_delay = 1.0
 concurrency = 2
 result_limit = 200
+agent_provider = "auto"
+agent_timeout = 120.0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264
 ```
@@ -283,11 +358,13 @@ uv run aso dashboard
 uv run aso dashboard --no-open --port 8765
 ```
 
-On a new installation, `uv sync` followed by `uv run aso dashboard` is enough. The dashboard initializes and migrates the local database, creates the default storefronts, and opens a two-step setup guide. Paste an App Store link or numerical app ID and choose a storefront, then add your first keywords and device. Ranking checks run automatically when those keywords are added. No account, API keys, sample apps, or sample keywords are required.
+On a new installation, `uv sync` followed by `uv run aso dashboard` is enough. The dashboard initializes and migrates the local database, creates the default storefronts, and opens a three-step setup guide. Paste an App Store link or numerical app ID and choose a storefront, add your first keywords and device, then select the preferred local research agent. Ranking checks run automatically when those keywords are added. No account, API keys, sample apps, or sample keywords are required.
 
 Setup completion is remembered in SQLite, and **Setup guide** in the sidebar reopens it anytime. Existing workspaces with apps are not interrupted by automatic onboarding.
 
-The server binds to `127.0.0.1` by default and stops with `Ctrl+C`. It uses the same SQLite database and supports app/storefront switching, Apple-backed app import, comma/newline batch keyword entry, multi-country and multi-device target creation, real iPhone/iPad filtering, running checks, filtering rankings, expandable rank history, listing-health review and competitor comparison. Submitting keywords automatically runs the first rank check for every selected keyword/storefront/device target; the manual check button remains available for later refreshes.
+The server binds to `127.0.0.1` by default and stops with `Ctrl+C`. It uses the same SQLite database and supports app/storefront switching, Apple-backed app import, comma/newline batch keyword entry, curated EN/FR/ES localization, multi-country and multi-device target creation, real iPhone/iPad filtering, running checks, filtering rankings, expandable rank history, listing-health review and competitor comparison. Submitting keywords automatically runs the first rank check for every selected keyword/storefront/device target; the manual check button remains available for later refreshes.
+
+Localization is deterministic and runs locally. It supports a curated astrology vocabulary rather than calling a machine-translation service. Canada receives both English and French groups, while the US receives both English and Spanish groups. Uncurated phrases are still added to English markets and are skipped for non-English markets with a visible warning, which avoids silently posting English terms to local storefronts.
 
 The visual design uses an app rail, compact app summary, tabbed work areas, rank tables, health breakdowns, and side-by-side comparison patterns inspired by modern ASO dashboards. It uses original Local ASO Tracker branding and no third-party frontend assets or framework.
 
@@ -295,7 +372,7 @@ Listing health is a transparent local heuristic calculated from public Apple fie
 
 Competitor comparison requires adding another app to the local catalog and compares only publicly returned listing fields.
 
-Apple does not expose keyword popularity or difficulty through the public Search API. The dashboard uses current rank bands as opportunity signals and never substitutes fabricated volume, popularity, download, or difficulty values.
+The ranking table shows estimated audience and difficulty beside Apple's measured rank. Green volume values indicate the stronger end of the local audience model; red difficulty values indicate the strongest incumbent rating signals. Each successful check also stores the first five returned app names and Apple artwork URLs, which appear as an overlapping icon stack; hover or keyboard focus reveals the app name. The compact responsive row keeps rank, volume, difficulty, Top 5, and the existing opportunity signal visible without a horizontal scroll. These local estimates never replace Apple's returned rank and are never presented as measured search demand.
 
 
 ## Exports and report

@@ -6,11 +6,13 @@ from threading import Thread
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from local_aso_tracker.apple.listing import AppleListing
 from local_aso_tracker.database import run_migrations, session_scope
-from local_aso_tracker.models import RankCheck
+from local_aso_tracker.models import RankCheck, RankTopApp
 from local_aso_tracker.repositories.data import (
+    add_app,
     list_targets,
     seed_catalog,
     seed_targets,
@@ -28,6 +30,7 @@ def sample_listing(
             "trackId": app_id,
             "trackName": name,
             "bundleId": f"example.{app_id}",
+            "artworkUrl100": f"https://is1-ssl.mzstatic.com/{app_id}/icon.png",
             "description": "Structured astrology lessons and quizzes. " * 30,
             "screenshotUrls": ["one", "two", "three", "four", "five"],
             "averageUserRating": 4.7,
@@ -53,18 +56,31 @@ def dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DashboardServi
             keyword="learn astrology",
             country="us",
         )[0]
-        session.add(
-            RankCheck(
-                tracking_target_id=target.id,
-                checked_at=datetime.now(UTC),
-                rank=26,
-                found=True,
-                result_limit=200,
-                total_results_reported=186,
-                response_time_ms=100,
-                status="success",
-            )
+        check = RankCheck(
+            tracking_target_id=target.id,
+            checked_at=datetime.now(UTC),
+            rank=26,
+            found=True,
+            result_limit=200,
+            total_results_reported=186,
+            response_time_ms=100,
+            status="success",
         )
+        check.top_apps = [
+            RankTopApp(
+                position=1,
+                track_id=111,
+                name="First app",
+                artwork_url="https://is1-ssl.mzstatic.com/first.png",
+            ),
+            RankTopApp(
+                position=2,
+                track_id=222,
+                name="Second app",
+                artwork_url=None,
+            ),
+        ]
+        session.add(check)
     service = DashboardService()
     monkeypatch.setattr(service, "listing", lambda app_id, country: sample_listing(app_id))
 
@@ -106,10 +122,17 @@ def test_dashboard_bootstrap_uses_real_local_rank_data(dashboard: DashboardServi
     assert rankings[0]["opportunity"] == "Growth opportunities (21-50)"
     assert payload["targetCounts"]["us:iphone"] == 15  # type: ignore[index]
     assert payload["targetCounts"]["us:ipad"] == 0  # type: ignore[index]
+    assert "us:iphone" in payload["metricTrends"]  # type: ignore[operator]
+    assert "us:iphone" in payload["metricTrends30d"]  # type: ignore[operator]
     assert rankings[0]["device"] == "iphone"
+    assert rankings[0]["topApps"][0]["name"] == "First app"  # type: ignore[index]
+    assert rankings[0]["topApps"][1]["appId"] == 222  # type: ignore[index]
     assert payload["health"]["score"] > 0  # type: ignore[index]
     assert payload["listing"]["screenshotStatus"] == "available"  # type: ignore[index]
     assert len(payload["listing"]["screenshots"]) == 5  # type: ignore[index]
+    assert payload["apps"][0]["artworkUrl"] == (  # type: ignore[index]
+        "https://is1-ssl.mzstatic.com/6771773264/icon.png"
+    )
 
 
 def test_dashboard_adds_keyword_targets_and_soft_deactivates(
@@ -145,6 +168,30 @@ def test_dashboard_adds_keyword_targets_and_soft_deactivates(
     assert reactivated["targetsReactivated"] == 1
 
 
+def test_dashboard_exposes_visibility_for_every_tracked_country(
+    dashboard: DashboardService,
+) -> None:
+    result = dashboard.add_keyword_targets(
+        {
+            "appId": 6771773264,
+            "keyword": "astrology for beginners",
+            "countries": ["us", "fr"],
+            "devices": ["iphone"],
+        }
+    )
+    assert result["automaticCheck"] == {"checks": 2, "searches": 2, "failures": 0}
+
+    payload = dashboard.bootstrap(6771773264, "us")
+    assert payload["targetCounts"]["us:iphone"] > 0  # type: ignore[index]
+    assert payload["targetCounts"]["fr:iphone"] > 0  # type: ignore[index]
+    country_rows = {
+        row["country"]
+        for row in payload["rankings"]  # type: ignore[union-attr]
+        if row["device"] == "iphone" and row["found"] and row["rank"] <= 10
+    }
+    assert country_rows == {"us", "fr"}
+
+
 def test_dashboard_adds_comma_separated_keywords_for_multiple_devices(
     dashboard: DashboardService,
 ) -> None:
@@ -173,6 +220,41 @@ def test_dashboard_adds_comma_separated_keywords_for_multiple_devices(
         }
 
 
+def test_dashboard_localizes_and_adds_market_specific_keyword_groups(
+    dashboard: DashboardService,
+) -> None:
+    localized = dashboard.localize_keywords(
+        {"keywords": "birth chart lessons, astrology basics", "countries": ["us", "fr"]}
+    )
+    groups = localized["groups"]
+    assert isinstance(groups, list)
+    assert [group["language"] for group in groups] == ["English", "French", "Spanish"]
+
+    result = dashboard.add_keyword_targets(
+        {
+            "appId": 6771773264,
+            "groups": [
+                {
+                    "keywords": group["keywords"],
+                    "countries": group["countries"],
+                }
+                for group in groups
+            ],
+            "devices": ["iphone"],
+        }
+    )
+    assert result["targetsCreated"] == 6
+    assert result["targetsUnchanged"] == 0
+    assert result["automaticCheck"] == {"checks": 6, "searches": 6, "failures": 0}
+    with session_scope() as session:
+        english = list_targets(session, keyword="birth chart lessons")
+        french = list_targets(session, keyword="leçons de thème astral")
+        spanish = list_targets(session, keyword="lecciones de carta natal")
+        assert {target.storefront.country_code for target in english} == {"us"}
+        assert {target.storefront.country_code for target in french} == {"fr"}
+        assert {target.storefront.country_code for target in spanish} == {"us"}
+
+
 def test_dashboard_compares_two_public_listings(
     dashboard: DashboardService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -185,6 +267,45 @@ def test_dashboard_compares_two_public_listings(
     assert result["primary"]["name"] == "Primary"  # type: ignore[index]
     assert result["competitor"]["name"] == "Other"  # type: ignore[index]
     assert result["primaryHealth"]["score"] == result["competitorHealth"]["score"]  # type: ignore[index]
+
+
+def test_dashboard_saves_and_analyzes_listing_metadata(dashboard: DashboardService) -> None:
+    result = dashboard.save_listing_coverage(
+        {
+            "appId": 6771773264,
+            "country": "us",
+            "device": "iphone",
+            "name": "Learn Astrology",
+            "subtitle": "Birth Chart Lessons",
+            "keywords": "birth chart, natal chart, astrology",
+        }
+    )
+
+    assert result["metadata"]["name"] == "Learn Astrology"  # type: ignore[index]
+    assert result["analysis"]["tracked_matches"] == 1  # type: ignore[index]
+    assert result["analysis"]["ranked_keywords"] == 1  # type: ignore[index]
+    payload = dashboard.bootstrap(6771773264, "us")
+    assert payload["listingMetadata"]["subtitle"] == "Birth Chart Lessons"  # type: ignore[index]
+
+
+def test_dashboard_removes_app_and_can_restore_it_by_re_adding(
+    dashboard: DashboardService,
+) -> None:
+    with session_scope() as session:
+        add_app(session, "Another app", 123)
+
+    result = dashboard.deactivate_app({"appleId": 6771773264})
+    assert result == {"removed": 6771773264, "name": "AstroLingo"}
+    payload = dashboard.bootstrap(6771773264, "us")
+    assert payload["selectedAppId"] == 123
+    assert sum(item["active"] for item in payload["apps"]) == 1  # type: ignore[index]
+
+    with session_scope() as session:
+        assert len(session.scalars(select(RankCheck)).all()) == 1
+
+    restored = dashboard.add_app_from_apple({"appleId": 6771773264, "country": "us"})
+    assert restored["created"] is False
+    assert dashboard.bootstrap(6771773264, "us")["selectedAppId"] == 6771773264
 
 
 def test_dashboard_payload_has_no_retired_metrics(dashboard: DashboardService) -> None:

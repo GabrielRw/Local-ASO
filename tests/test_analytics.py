@@ -1,11 +1,16 @@
 """Rank movement and summary calculation tests."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from local_aso_tracker.models import App, Keyword, RankCheck, Storefront, TrackingTarget
-from local_aso_tracker.services.analytics import RankingRow, calculate_summary, movement
+from local_aso_tracker.services.analytics import (
+    RankingRow,
+    calculate_metric_trends,
+    calculate_summary,
+    movement,
+)
 
 
 def check(rank: int | None, found: bool = True) -> RankCheck:
@@ -60,3 +65,49 @@ def test_summary_excludes_absent_from_average() -> None:
     assert summary.best_keyword == "best (#5)"
     assert summary.newly_ranked == 0
     assert summary.lost == 1
+
+
+def test_seven_day_metric_trends_use_latest_historical_checks() -> None:
+    cutoff = datetime(2026, 10, 19, 12, tzinfo=UTC)
+    baseline_time = cutoff - timedelta(days=1)
+    current_time = cutoff + timedelta(days=6)
+    targets = [
+        TrackingTarget(
+            id=target_id,
+            app=App(name="App", apple_app_id=1),
+            keyword=Keyword(
+                keyword=f"keyword {target_id}", normalized_keyword=f"keyword {target_id}"
+            ),
+            storefront=Storefront(country_code="us", display_name="United States"),
+            device="iphone",
+            created_at=cutoff - timedelta(days=30),
+        )
+        for target_id in (1, 2)
+    ]
+    baseline_one = check(60)
+    baseline_one.tracking_target_id = 1
+    baseline_one.checked_at = baseline_time
+    baseline_two = check(None, found=False)
+    baseline_two.tracking_target_id = 2
+    baseline_two.checked_at = baseline_time
+    current_one = check(10)
+    current_one.tracking_target_id = 1
+    current_one.checked_at = current_time
+    current_two = check(20)
+    current_two.tracking_target_id = 2
+    current_two.checked_at = current_time
+
+    trends = calculate_metric_trends(
+        targets,
+        {1: (current_one, baseline_one), 2: (current_two, baseline_two)},
+        [baseline_one, baseline_two, current_one, current_two],
+        cutoff=cutoff,
+    )["us:iphone"]
+
+    assert trends["tracked"].percent == 0
+    assert trends["top10"].percent is None
+    assert trends["top50"].percent is None
+    assert trends["notVisible"].percent == -100
+    assert trends["notVisible"].better is True
+    assert trends["averageRank"].percent == -75
+    assert trends["averageRank"].better is True

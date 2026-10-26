@@ -16,12 +16,57 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert 'id="screenshotGallery"' in html
     assert 'id="deviceSelect"' in html
     assert 'id="deviceChecks"' in html
+    assert 'id="localizeKeywordsButton"' in html
+    assert 'id="localizationPreview"' in html
+    assert 'id="appTooltip"' in html
+    assert 'id="deleteAppModal"' in html
+    assert 'id="confirmDeleteApp"' in html
+    assert 'id="overallRankChart"' in html
+    assert 'id="overallAverageRank"' in html
+    assert 'id="countryVisibility"' in html
+    assert 'id="losingCard"' in html
+    assert 'id="losingGrid"' in html
+    assert 'id="metricHistoryModal"' in html
+    assert 'id="metricHistoryChart"' in html
+    assert 'id="coverageCard"' in html
     assert "window.confirm" not in script
     assert "targetsReactivated" in script
     assert "screenshotStatus" in script
     assert "countryFlag" in script
     assert "keywordsRequested" in script
     assert "automaticCheck" in script
+    assert "estimateCell" in script
+    assert "volumeEstimate" in script
+    assert "difficultyEstimate" in script
+    assert "topAppsCell" in script
+    assert "showTopAppTooltip" in script
+    assert "app-delete-button" in script
+    assert "/api/apps/deactivate" in script
+    assert "metricTrend" in script
+    assert "metricTrends30d" in script
+    assert 'label: "Tracked"' not in script
+    assert 'label: "Not visible"' not in script
+    assert "renderOverallRankHistory" in script
+    assert "renderLosingTo" in script
+    assert "renderCountryVisibility" in script
+    assert "data-country-card" in script
+    assert "monitorAutomaticSync" in script
+    assert "/api/sync-status" in script
+    assert 'id="syncIndicator"' in html
+    assert "openMetricHistory" in script
+    assert "data-metric-series" in script
+    assert "renderListingCoverage" in script
+    assert "/api/listing-metadata" in script
+    assert 'id="nicheWorkspace"' in html
+    assert 'id="nicheCheckNowButton"' in html
+    assert 'id="nicheAgentForm"' in html
+    assert "nicheCheckSummary" in script
+    assert "No rated matches" in script
+    assert "volumeTone" in script
+    assert "difficultyTone" in script
+    assert ".niche-cell-inner.mixed" in styles
+    assert ".niche-cell-inner { min-height: 21px;" in styles
+    assert "Live methodology" not in html
     assert "@media (max-width: 800px)" in styles
 
 
@@ -32,9 +77,10 @@ def test_dashboard_has_no_popularity_or_credentials_workflow() -> None:
         for retired in ("popularity", "appleads", "apple-ads", "oauth", "clientsecret"):
             assert retired not in content, f"{retired} remains in {filename}"
     html = static.joinpath("index.html").read_text(encoding="utf-8")
-    assert html.count("data-setup-step=") == 2
-    assert html.count("data-setup-progress=") == 2
+    assert html.count("data-setup-step=") == 3
+    assert html.count("data-setup-progress=") == 3
     assert "No account or API keys needed" in html
+    assert 'id="onboardingAgentChoices"' in html
 
 
 def test_dashboard_has_no_aso_principle_audit() -> None:

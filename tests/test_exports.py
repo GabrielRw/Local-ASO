@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from local_aso_tracker.models import RankCheck
+from local_aso_tracker.models import RankCheck, RankEstimate
 from local_aso_tracker.reports.exports import export_latest_csv
 from local_aso_tracker.reports.html import generate_html_report
 from local_aso_tracker.repositories.data import (
@@ -32,6 +32,12 @@ def test_csv_export_creates_directories_and_utf8_bom(session: Session, tmp_path:
             result_limit=200,
             response_time_ms=42,
             status="success",
+            estimate=RankEstimate(
+                volume=42,
+                difficulty=68,
+                sample_size=6,
+                model_version="ratings-model-v1",
+            ),
         )
     )
     session.flush()
@@ -43,6 +49,8 @@ def test_csv_export_creates_directories_and_utf8_bom(session: Session, tmp_path:
     assert rows[0]["app"] == "Étoiles"
     assert rows[0]["device"] == "iphone"
     assert rows[0]["rank"] == ">200"
+    assert rows[0]["volume_estimate"] == "42"
+    assert rows[0]["difficulty_estimate"] == "68"
 
     report = tmp_path / "report.html"
     assert generate_html_report(session, list_targets(session), report) == 1
@@ -50,3 +58,5 @@ def test_csv_export_creates_directories_and_utf8_bom(session: Session, tmp_path:
     assert "All devices" in report_html
     assert "iPadSoftware" in report_html
     assert '"device": "iphone"' in report_html
+    assert '"volumeEstimate": 42' in report_html
+    assert "Difficulty est." in report_html

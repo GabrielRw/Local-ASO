@@ -481,6 +481,8 @@ def rankings(
             "Country",
             "Device",
             "Rank",
+            "Volume est.",
+            "Difficulty est.",
             "Previous",
             "Change",
             "Checked at",
@@ -500,6 +502,12 @@ def rankings(
                 row.target.storefront.country_code,
                 row.target.device,
                 _rank(row.latest),
+                str(row.latest.estimate.volume)
+                if row.latest.estimate and row.latest.estimate.volume is not None
+                else "—",
+                str(row.latest.estimate.difficulty)
+                if row.latest.estimate and row.latest.estimate.difficulty is not None
+                else "—",
                 _rank(row.previous) if row.previous else "—",
                 f"[{style}]{row.change}[/]" if style else row.change,
                 local_timestamp(row.latest.checked_at),
@@ -702,6 +710,12 @@ def report(
 def dashboard(
     host: str = typer.Option("127.0.0.1", "--host", help="Local interface to bind."),
     port: int = typer.Option(8765, "--port", min=1, max=65535),
+    mcp_enabled: bool = typer.Option(
+        True,
+        "--mcp/--no-mcp",
+        help="Start the local MCP read/write action endpoint with the dashboard.",
+    ),
+    mcp_port: int = typer.Option(8766, "--mcp-port", min=1, max=65535),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
 ) -> None:
     """Launch the interactive local-only web dashboard."""
@@ -717,9 +731,19 @@ def dashboard(
             "Warning: binding beyond loopback exposes the dashboard to your local network.",
             style="yellow",
         )
+    if mcp_enabled and mcp_port == port:
+        if port >= 65535:
+            raise typer.BadParameter("cannot select an MCP port when --port is 65535")
+        mcp_port = port + 1
     from local_aso_tracker.web.server import serve_dashboard
 
-    serve_dashboard(host=host, port=port, open_browser=open_browser)
+    serve_dashboard(
+        host=host,
+        port=port,
+        mcp_enabled=mcp_enabled,
+        mcp_port=mcp_port,
+        open_browser=open_browser,
+    )
 
 
 def main() -> None:

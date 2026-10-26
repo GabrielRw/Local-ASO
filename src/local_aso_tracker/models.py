@@ -36,6 +36,118 @@ class DashboardOnboarding(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ListingMetadata(Base):
+    """User-provided localized metadata used by the coverage audit."""
+
+    __tablename__ = "listing_metadata"
+    __table_args__ = (
+        UniqueConstraint("app_id", "storefront_id", name="uq_listing_metadata_app_storefront"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), index=True)
+    storefront_id: Mapped[int] = mapped_column(
+        ForeignKey("storefronts.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    subtitle: Mapped[str] = mapped_column(String(255), default="")
+    keyword_field: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class NicheBoard(Base):
+    """An app-independent keyword research board."""
+
+    __tablename__ = "niche_boards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    brief: Mapped[str] = mapped_column(Text)
+    provider: Mapped[str | None] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    keywords: Mapped[list[NicheKeyword]] = relationship(
+        back_populates="board", cascade="all, delete-orphan"
+    )
+    markets: Mapped[list[NicheMarket]] = relationship(
+        back_populates="board", cascade="all, delete-orphan"
+    )
+
+
+class NicheKeyword(Base):
+    """A keyword in a niche research board."""
+
+    __tablename__ = "niche_keywords"
+    __table_args__ = (UniqueConstraint("board_id", "normalized_keyword", name="uq_niche_keyword"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        ForeignKey("niche_boards.id", ondelete="CASCADE"), index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(255))
+    normalized_keyword: Mapped[str] = mapped_column(String(255), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    board: Mapped[NicheBoard] = relationship(back_populates="keywords")
+    metrics: Mapped[list[NicheMetric]] = relationship(
+        back_populates="keyword", cascade="all, delete-orphan"
+    )
+
+
+class NicheMarket(Base):
+    """A country column in a niche research board."""
+
+    __tablename__ = "niche_markets"
+    __table_args__ = (UniqueConstraint("board_id", "country_code", name="uq_niche_market"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    board_id: Mapped[int] = mapped_column(
+        ForeignKey("niche_boards.id", ondelete="CASCADE"), index=True
+    )
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+
+    board: Mapped[NicheBoard] = relationship(back_populates="markets")
+
+
+class NicheMetric(Base):
+    """Latest Apple-public-data estimate for a board keyword and country."""
+
+    __tablename__ = "niche_metrics"
+    __table_args__ = (
+        UniqueConstraint("niche_keyword_id", "country_code", name="uq_niche_metric"),
+        CheckConstraint(
+            "volume_estimate IS NULL OR volume_estimate BETWEEN 0 AND 100",
+            name="ck_niche_metrics_volume",
+        ),
+        CheckConstraint(
+            "difficulty_estimate IS NULL OR difficulty_estimate BETWEEN 0 AND 100",
+            name="ck_niche_metrics_difficulty",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    niche_keyword_id: Mapped[int] = mapped_column(
+        ForeignKey("niche_keywords.id", ondelete="CASCADE"), index=True
+    )
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    device: Mapped[str] = mapped_column(String(10), default="iphone")
+    volume_estimate: Mapped[int | None] = mapped_column(Integer)
+    difficulty_estimate: Mapped[int | None] = mapped_column(Integer)
+    sample_size: Mapped[int | None] = mapped_column(Integer)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    keyword: Mapped[NicheKeyword] = relationship(back_populates="metrics")
+
+
 class App(Base):
     __tablename__ = "apps"
 
@@ -47,6 +159,15 @@ class App(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     targets: Mapped[list[TrackingTarget]] = relationship(back_populates="app")
+
+
+class AppArtwork(Base):
+    """Public artwork kept separate from app identity and tracking data."""
+
+    __tablename__ = "app_artwork"
+
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), primary_key=True)
+    artwork_url: Mapped[str] = mapped_column(Text)
 
 
 class Storefront(Base):
@@ -116,3 +237,63 @@ class RankCheck(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     tracking_target: Mapped[TrackingTarget] = relationship(back_populates="checks")
+    estimate: Mapped[RankEstimate | None] = relationship(
+        back_populates="rank_check", uselist=False, cascade="all, delete-orphan"
+    )
+    top_apps: Mapped[list[RankTopApp]] = relationship(
+        back_populates="rank_check",
+        order_by="RankTopApp.position",
+        cascade="all, delete-orphan",
+    )
+
+
+class RankEstimate(Base):
+    """A versioned derived score kept separate from Apple's rank evidence."""
+
+    __tablename__ = "rank_estimates"
+    __table_args__ = (
+        CheckConstraint(
+            "volume IS NULL OR volume BETWEEN 0 AND 100",
+            name="ck_rank_estimates_volume",
+        ),
+        CheckConstraint(
+            "difficulty IS NULL OR difficulty BETWEEN 0 AND 100",
+            name="ck_rank_estimates_difficulty",
+        ),
+        CheckConstraint(
+            "sample_size BETWEEN 0 AND 10",
+            name="ck_rank_estimates_sample_size",
+        ),
+    )
+
+    rank_check_id: Mapped[int] = mapped_column(
+        ForeignKey("rank_checks.id", ondelete="CASCADE"), primary_key=True
+    )
+    volume: Mapped[int | None] = mapped_column(Integer)
+    difficulty: Mapped[int | None] = mapped_column(Integer)
+    sample_size: Mapped[int] = mapped_column(Integer)
+    model_version: Mapped[str] = mapped_column(String(50))
+
+    rank_check: Mapped[RankCheck] = relationship(back_populates="estimate")
+
+
+class RankTopApp(Base):
+    """One of the first five app results supporting a stored rank check."""
+
+    __tablename__ = "rank_top_apps"
+    __table_args__ = (
+        CheckConstraint(
+            "position BETWEEN 1 AND 5",
+            name="ck_rank_top_apps_position",
+        ),
+    )
+
+    rank_check_id: Mapped[int] = mapped_column(
+        ForeignKey("rank_checks.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    track_id: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(255))
+    artwork_url: Mapped[str | None] = mapped_column(Text)
+
+    rank_check: Mapped[RankCheck] = relationship(back_populates="top_apps")

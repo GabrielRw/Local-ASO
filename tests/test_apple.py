@@ -20,6 +20,9 @@ def response_payload() -> dict[str, object]:
                 "trackName": "Learn Astrology: AstroLingo",
                 "version": "1.2.3",
                 "trackViewUrl": "https://apps.apple.com/app/id6771773264",
+                "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/example/100x100bb.png",
+                "userRatingCount": 1500,
+                "averageUserRating": 4.6,
             },
         ],
     }
@@ -30,6 +33,9 @@ def test_rank_extraction_is_one_based() -> None:
     assert result.found is True
     assert result.rank == 2
     assert result.app is not None and result.app.version == "1.2.3"
+    assert result.app is not None and result.app.user_rating_count == 1500
+    assert result.app is not None and result.app.average_user_rating == 4.6
+    assert result.app is not None and result.app.artwork_url_100 is not None
 
 
 def test_app_not_found_is_null_rank() -> None:

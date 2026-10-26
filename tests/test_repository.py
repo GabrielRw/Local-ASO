@@ -69,3 +69,16 @@ def test_latest_rank_query_returns_latest_and_previous(session: Session) -> None
     pair = latest_pairs(session, list_targets(session))[target_id]
     assert pair[0].rank == 10
     assert pair[1] is not None and pair[1].rank == 20
+
+
+def test_adding_an_existing_app_reactivates_it(session: Session) -> None:
+    app, created = add_app(session, "Original name", 123)
+    assert created is True
+    app.active = False
+    session.flush()
+
+    restored, created_again = add_app(session, "Updated name", 123)
+
+    assert created_again is False
+    assert restored.id == app.id
+    assert restored.active is True

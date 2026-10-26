@@ -31,7 +31,25 @@ async def test_two_apps_share_one_keyword_country_request(session: Session) -> N
         calls += 1
         return httpx.Response(
             200,
-            json={"resultCount": 2, "results": [{"trackId": 2}, {"trackId": 1}]},
+            json={
+                "resultCount": 2,
+                "results": [
+                    {
+                        "trackId": 2,
+                        "trackName": "Two",
+                        "artworkUrl100": "https://is1-ssl.mzstatic.com/two.png",
+                        "userRatingCount": 20_000,
+                        "averageUserRating": 4.7,
+                    },
+                    {
+                        "trackId": 1,
+                        "trackName": "One",
+                        "artworkUrl100": "https://is1-ssl.mzstatic.com/one.png",
+                        "userRatingCount": 15_000,
+                        "averageUserRating": 4.5,
+                    },
+                ],
+            },
             request=request,
         )
 
@@ -44,6 +62,12 @@ async def test_two_apps_share_one_keyword_country_request(session: Session) -> N
     assert calls == 1
     assert result.searches == 1
     assert [item.rank for item in result.checks] == [2, 1]
+    assert all(item.estimate is not None for item in result.checks)
+    assert all(item.estimate.sample_size == 2 for item in result.checks if item.estimate)
+    assert [(item.position, item.name) for item in result.checks[0].top_apps] == [
+        (1, "Two"),
+        (2, "One"),
+    ]
 
 
 @pytest.mark.asyncio

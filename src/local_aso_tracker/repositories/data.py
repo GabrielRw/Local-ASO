@@ -8,7 +8,15 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from local_aso_tracker.config import validate_country_code, validate_device
-from local_aso_tracker.models import App, Keyword, RankCheck, Storefront, TrackingTarget
+from local_aso_tracker.models import (
+    App,
+    AppArtwork,
+    Keyword,
+    ListingMetadata,
+    RankCheck,
+    Storefront,
+    TrackingTarget,
+)
 
 INITIAL_COUNTRIES = {
     "us": "United States",
@@ -48,14 +56,31 @@ def normalize_keyword(value: str) -> str:
 
 
 def add_app(
-    session: Session, name: str, apple_id: int, bundle_id: str | None = None
+    session: Session,
+    name: str,
+    apple_id: int,
+    bundle_id: str | None = None,
+    artwork_url: str | None = None,
 ) -> tuple[App, bool]:
     existing = session.scalar(select(App).where(App.apple_app_id == apple_id))
     if existing:
+        existing.active = True
+        if artwork_url:
+            artwork = session.get(AppArtwork, existing.id)
+            if artwork is None:
+                session.add(AppArtwork(app_id=existing.id, artwork_url=artwork_url))
+            else:
+                artwork.artwork_url = artwork_url
         return existing, False
-    item = App(name=name.strip(), apple_app_id=apple_id, bundle_id=bundle_id)
+    item = App(
+        name=name.strip(),
+        apple_app_id=apple_id,
+        bundle_id=bundle_id,
+    )
     session.add(item)
     session.flush()
+    if artwork_url:
+        session.add(AppArtwork(app_id=item.id, artwork_url=artwork_url))
     return item, True
 
 
@@ -159,6 +184,70 @@ def seed_targets(session: Session, apple_id: int = 6771773264) -> int:
     return created
 
 
+def get_listing_metadata(
+    session: Session,
+    apple_id: int,
+    country: str,
+) -> ListingMetadata | None:
+    """Return saved metadata for one app and storefront."""
+
+    storefront = session.scalar(
+        select(Storefront).where(Storefront.country_code == validate_country_code(country))
+    )
+    app = session.scalar(select(App).where(App.apple_app_id == apple_id))
+    if app is None or storefront is None:
+        return None
+    return session.scalar(
+        select(ListingMetadata).where(
+            ListingMetadata.app_id == app.id,
+            ListingMetadata.storefront_id == storefront.id,
+        )
+    )
+
+
+def save_listing_metadata(
+    session: Session,
+    apple_id: int,
+    country: str,
+    *,
+    name: str,
+    subtitle: str,
+    keyword_field: str,
+) -> ListingMetadata:
+    """Create or update the user-provided metadata for one app/storefront."""
+
+    app = session.scalar(select(App).where(App.apple_app_id == apple_id))
+    storefront = session.scalar(
+        select(Storefront).where(Storefront.country_code == validate_country_code(country))
+    )
+    if app is None:
+        raise ValueError(f"unknown app ID: {apple_id}")
+    if storefront is None:
+        raise ValueError(f"unknown country: {country}")
+    item = session.scalar(
+        select(ListingMetadata).where(
+            ListingMetadata.app_id == app.id,
+            ListingMetadata.storefront_id == storefront.id,
+        )
+    )
+    if item is None:
+        item = ListingMetadata(
+            app_id=app.id,
+            storefront_id=storefront.id,
+            name=name,
+            subtitle=subtitle,
+            keyword_field=keyword_field,
+        )
+        session.add(item)
+    else:
+        item.name = name
+        item.subtitle = subtitle
+        item.keyword_field = keyword_field
+        item.updated_at = datetime.now(UTC)
+    session.flush()
+    return item
+
+
 def target_query(
     *,
     apple_id: int | None = None,
@@ -252,8 +341,10 @@ def successful_checks(
     ids = [target.id for target in targets]
     if not ids:
         return []
-    query = select(RankCheck).where(
-        RankCheck.tracking_target_id.in_(ids), RankCheck.status == "success"
+    query = (
+        select(RankCheck)
+        .options(selectinload(RankCheck.estimate), selectinload(RankCheck.top_apps))
+        .where(RankCheck.tracking_target_id.in_(ids), RankCheck.status == "success")
     )
     if start is not None:
         query = query.where(RankCheck.checked_at >= start)

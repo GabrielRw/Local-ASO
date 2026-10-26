@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import tomllib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,6 +25,8 @@ class Settings(BaseModel):
     request_delay: float = Field(default=1.0, ge=0)
     concurrency: int = Field(default=2, ge=1, le=10)
     result_limit: int = Field(default=200, ge=1, le=200)
+    agent_provider: Literal["auto", "codex", "claude"] = "auto"
+    agent_timeout: float = Field(default=120.0, ge=10, le=600)
     default_countries: list[str] = Field(default_factory=lambda: ["us", "fr", "gb", "ca", "au"])
     default_app_id: int = 6771773264
 
@@ -92,9 +97,46 @@ retry_count = 3
 request_delay = 1.0
 concurrency = 2
 result_limit = 200
+agent_provider = "auto"
+agent_timeout = 120.0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264
 """,
         encoding="utf-8",
     )
     return path
+
+
+def update_settings(**changes: object) -> Settings:
+    """Validate and persist supported configuration changes."""
+
+    current = load_settings().model_dump()
+    unknown = set(changes) - set(current)
+    if unknown:
+        raise ValueError(f"unknown setting: {sorted(unknown)[0]}")
+    settings = Settings.model_validate({**current, **changes})
+    path = write_default_config()
+    content = path.read_text(encoding="utf-8")
+    for key, value in changes.items():
+        replacement = f"{key} = {_toml_value(value)}"
+        pattern = rf"(?m)^{re.escape(key)}\s*=.*$"
+        if re.search(pattern, content):
+
+            def replace_match(_match: re.Match[str], repl: str = replacement) -> str:
+                return repl
+
+            content = re.sub(pattern, replace_match, content)
+        else:
+            content = content.rstrip() + "\n" + replacement + "\n"
+    path.write_text(content, encoding="utf-8")
+    return settings
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    return str(value)

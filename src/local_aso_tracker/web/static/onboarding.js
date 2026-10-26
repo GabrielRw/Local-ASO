@@ -1,9 +1,9 @@
-const onboarding = { step: 0, busy: false, seen: false };
+const onboarding = { step: 0, busy: false, seen: false, agent: "auto" };
 
 function bindOnboardingEvents() {
   el("#setupButton").addEventListener("click", openOnboarding);
   el("#onboardingForm").addEventListener("submit", submitOnboarding);
-  el("#onboardingBack").addEventListener("click", () => showOnboardingStep(0));
+  el("#onboardingBack").addEventListener("click", () => showOnboardingStep(Math.max(0, onboarding.step - 1)));
   el("#onboardingClose").addEventListener("click", dismissOnboarding);
   el("#onboardingExistingApp").addEventListener("change", toggleOnboardingAppField);
   el("#onboardingModal").addEventListener("cancel", (event) => {
@@ -31,6 +31,8 @@ function openOnboarding() {
     `<option value="${country.code}" ${country.code === state.country ? "selected" : ""}>${countryFlag(country.code)} ${escapeHtml(country.name)}</option>`
   ).join("");
   el("#onboardingDevice").value = state.device;
+  onboarding.agent = state.data.defaultAgentProvider || "auto";
+  renderOnboardingAgents();
   toggleOnboardingAppField();
   showOnboardingStep(0, false);
   el("#onboardingModal").showModal();
@@ -41,13 +43,40 @@ function toggleOnboardingAppField() {
   el("#onboardingAppIdField").hidden = Boolean(el("#onboardingExistingApp").value);
 }
 
+function renderOnboardingAgents() {
+  const providers = state.data.agentProviders || [];
+  const selected = onboarding.agent || state.data.defaultAgentProvider || "auto";
+  const choices = [
+    { id: "auto", label: "Auto-detect", available: true, detail: "Use the first available local agent" },
+    ...providers,
+  ];
+  el("#onboardingAgentChoices").innerHTML = choices.map((provider) => {
+    const available = provider.available !== false;
+    const active = provider.id === selected || (!providers.some((item) => item.id === selected && item.available) && provider.id === "auto");
+    return `<label class="agent-choice ${active ? "selected" : ""} ${available ? "" : "unavailable"}">
+      <input type="radio" name="onboardingAgent" value="${escapeAttr(provider.id)}" ${active ? "checked" : ""} ${available ? "" : "disabled"}>
+      <span class="agent-choice-mark">${provider.id === "auto" ? "✦" : provider.label.slice(0, 1)}</span>
+      <span><strong>${escapeHtml(provider.label)}</strong><small>${escapeHtml(provider.detail || (available ? "Available on this computer" : "CLI not found"))}</small></span>
+      <span class="agent-choice-state">${available ? "Available" : "Unavailable"}</span>
+    </label>`;
+  }).join("");
+  all('input[name="onboardingAgent"]').forEach((input) => input.addEventListener("change", () => {
+    onboarding.agent = input.value;
+    all(".agent-choice").forEach((choice) => choice.classList.toggle("selected", Boolean(choice.querySelector("input:checked"))));
+  }));
+}
+
 function showOnboardingStep(step, focus = true) {
   onboarding.step = step;
-  el("#onboardingTitle").textContent = step === 0 ? "A little setup. A clearer view." : "Start tracking your keywords.";
-  el("#onboardingIntro").textContent = step === 0
-    ? "Choose your app and storefront. Your workspace stays on this computer."
-    : "Add a few search terms and we’ll run your first ranking check automatically.";
-  el("#onboardingStepLabel").textContent = `Step ${step + 1} of 2`;
+  const titles = ["A little setup. A clearer view.", "Start tracking your keywords.", "Choose your research agent."];
+  const intros = [
+    "Choose your app and storefront. Your workspace stays on this computer.",
+    "Add a few search terms and we’ll run your first ranking check automatically.",
+    "Select which local AI CLI should power niche keyword discovery. You can change this anytime.",
+  ];
+  el("#onboardingTitle").textContent = titles[step];
+  el("#onboardingIntro").textContent = intros[step];
+  el("#onboardingStepLabel").textContent = `Step ${step + 1} of 3`;
   all("[data-setup-step]").forEach((panel) => { panel.hidden = Number(panel.dataset.setupStep) !== step; });
   all("[data-setup-progress]").forEach((item) => {
     const index = Number(item.dataset.setupProgress);
@@ -58,8 +87,9 @@ function showOnboardingStep(step, focus = true) {
     item.querySelector("span").textContent = index < step ? "✓" : String(index + 1);
   });
   el("#onboardingBack").hidden = step === 0;
-  el("#onboardingNext").textContent = step === 1 ? "Open dashboard" : "Continue";
+  el("#onboardingNext").textContent = step === 2 ? "Open dashboard" : "Continue";
   el("#onboardingError").hidden = true;
+  if (step === 2) renderOnboardingAgents();
   if (step === 1) {
     const app = state.data.apps.find((item) => item.appleAppId === state.appId);
     el("#onboardingSummary").innerHTML = `<div class="setup-summary-row"><span aria-hidden="true">↗</span><div><strong>${escapeHtml(app?.name || "Your app")}</strong><small>${countryFlag(state.country)} ${escapeHtml(state.country.toUpperCase())} storefront · Public App Store rankings</small></div></div>`;
@@ -73,7 +103,8 @@ function setOnboardingBusy(busy, label = "") {
   onboarding.busy = busy;
   el("#onboardingModal").setAttribute("aria-busy", String(busy));
   all("#onboardingForm button, #onboardingForm input, #onboardingForm select, #onboardingForm textarea").forEach((control) => { control.disabled = busy; });
-  el("#onboardingNext").textContent = busy ? label || "Working…" : onboarding.step === 1 ? "Open dashboard" : "Continue";
+  el("#onboardingNext").textContent = busy ? label || "Working…" : onboarding.step === 2 ? "Open dashboard" : "Continue";
+  if (!busy && onboarding.step === 2) renderOnboardingAgents();
 }
 
 function onboardingError(message) {
@@ -114,15 +145,20 @@ async function submitOnboarding(event) {
       el("#keywordFilter").value = "";
       await loadDashboard({ quiet: true });
       showOnboardingStep(1);
+    } else if (onboarding.step === 1) {
+      showOnboardingStep(2);
     } else {
       const keywords = el("#onboardingKeywords").value.trim();
       const device = el("#onboardingDevice").value;
-      setOnboardingBusy(true, keywords ? "Checking keywords…" : "Opening dashboard…");
+      const provider = el('input[name="onboardingAgent"]:checked')?.value || "auto";
+      setOnboardingBusy(true, keywords ? "Checking keywords…" : "Saving agent…");
       let checkResult;
       if (keywords) checkResult = await request("/api/keywords", {
         method: "POST", body: { appId: state.appId, keywords, countries: [state.country], devices: [device] },
       });
+      await request("/api/settings/agent", { method: "POST", body: { provider } });
       state.data.onboarding = await request("/api/onboarding/complete", { method: "POST", body: {} });
+      state.data.defaultAgentProvider = provider;
       state.device = device;
       el("#onboardingModal").close();
       await loadDashboard({ quiet: true });

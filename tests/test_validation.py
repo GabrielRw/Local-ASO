@@ -3,7 +3,9 @@
 import pytest
 
 from local_aso_tracker.config import (
+    config_path,
     load_settings,
+    update_settings,
     validate_country_code,
     validate_device,
     write_default_config,
@@ -44,3 +46,18 @@ def test_default_config_is_valid_toml(tmp_path: object, monkeypatch: pytest.Monk
     path = write_default_config()
     assert path.exists()
     assert load_settings().result_limit == 200
+
+
+def test_agent_provider_setting_is_validated_and_persisted(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ASO_DATA_DIR", str(tmp_path))
+    path = write_default_config()
+    path.write_text(path.read_text(encoding="utf-8") + "# keep this comment\n", encoding="utf-8")
+    updates = update_settings(agent_provider="claude")
+    assert updates.agent_provider == "claude"
+    assert load_settings().agent_provider == "claude"
+    assert "# keep this comment" in config_path().read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown setting"):
+        update_settings(not_a_setting=True)

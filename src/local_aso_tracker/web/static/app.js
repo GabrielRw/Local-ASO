@@ -7,6 +7,17 @@ const state = {
   filter: "",
   selectedTarget: null,
   pendingDeactivateTarget: null,
+  pendingDeleteApp: null,
+  localization: null,
+  coverageStep: 1,
+  coverageCountry: null,
+  coverageDraft: null,
+  coverageAnalysis: null,
+  niche: null,
+  nicheLoaded: false,
+  nicheView: false,
+  syncPollTimer: null,
+  syncWasRunning: false,
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -23,6 +34,7 @@ function bindEvents() {
     state.country = event.target.value;
     state.selectedTarget = null;
     state.filter = "";
+    resetCoverage();
     el("#keywordFilter").value = "";
     loadDashboard();
   });
@@ -31,30 +43,63 @@ function bindEvents() {
     state.selectedTarget = null;
     state.selectedTarget = null;
     state.filter = "";
+    if (state.coverageStep === 3) {
+      state.coverageStep = 2;
+      state.coverageAnalysis = null;
+    }
     el("#keywordFilter").value = "";
     renderHero();
+    renderCountryVisibility();
     renderRankings();
+    renderListingCoverage();
   });
   el("#keywordFilter").addEventListener("input", (event) => {
     state.filter = event.target.value.trim().toLowerCase();
     renderRankings();
   });
+  el("#metrics").addEventListener("click", metricCardClick);
   el("#runCheckButton").addEventListener("click", runCheck);
   el("#addKeywordButton").addEventListener("click", openKeywordModal);
+  el("#localizeKeywordsButton").addEventListener("click", localizeKeywordInput);
+  el("#selectAllCountries").addEventListener("click", toggleAllCountries);
+  el("#keywordInput").addEventListener("input", resetLocalization);
+  el("#countryChecks").addEventListener("change", resetLocalization);
   el("#addAppButton").addEventListener("click", () => el("#appModal").showModal());
   el("#keywordForm").addEventListener("submit", addKeyword);
   el("#appForm").addEventListener("submit", addApp);
   el("#compareButton").addEventListener("click", compareApps);
   el("#confirmDeactivateButton").addEventListener("click", confirmDeactivate);
+  el("#confirmDeleteApp").addEventListener("click", confirmDeleteApp);
+  el("#appList").addEventListener("click", appListClick);
   el("#menuButton").addEventListener("click", () => el("#sidebar").classList.toggle("open"));
   el("#rankingsBody").addEventListener("click", rankingClick);
+  el("#rankingsBody").addEventListener("pointerover", showTopAppTooltip);
+  el("#rankingsBody").addEventListener("pointerout", hideTopAppTooltip);
+  el("#rankingsBody").addEventListener("focusin", showTopAppTooltip);
+  el("#rankingsBody").addEventListener("focusout", hideTopAppTooltip);
+  el("#countryVisibility").addEventListener("click", countryVisibilityClick);
+  window.addEventListener("resize", hideTopAppTooltip);
+  window.addEventListener("scroll", hideTopAppTooltip, true);
   all("[data-tab], [data-tab-target]").forEach((button) => {
-    button.addEventListener("click", () => switchTab(button.dataset.tab || button.dataset.tabTarget));
+    button.addEventListener("click", () => {
+      closeNicheWorkspace();
+      switchTab(button.dataset.tab || button.dataset.tabTarget);
+    });
+  });
+  el("#nicheNavButton").addEventListener("click", openNicheWorkspace);
+  el("#nicheCreateForm").addEventListener("submit", createNicheBoard);
+  el("#nicheAgentForm").addEventListener("submit", addNicheKeywordsWithAgent);
+  el("#nicheCheckNowButton").addEventListener("click", checkNicheBoard);
+  el("#nicheAddCountryButton").addEventListener("click", addNicheCountry);
+  el("#nicheBoardSelect").addEventListener("change", (event) => {
+    loadNicheWorkspace(Number(event.target.value));
   });
   all("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => {
       const dialog = button.closest("dialog");
       if (dialog.id === "confirmModal") state.pendingDeactivateTarget = null;
+      if (dialog.id === "deleteAppModal") state.pendingDeleteApp = null;
+      if (dialog.id === "keywordModal") resetLocalization();
       dialog.close();
     });
   });
@@ -71,6 +116,7 @@ async function loadDashboard({ quiet = false } = {}) {
     state.country = state.data.selectedCountry || state.country;
     renderAll();
     maybeOpenOnboarding();
+    monitorAutomaticSync();
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -82,36 +128,99 @@ function renderAll() {
   renderSidebar();
   renderCountryControls();
   renderHero();
+  renderCountryVisibility();
   renderRankings();
   renderHealth();
   renderCompetitorPicker();
   switchTab(state.tab, false);
 }
 
+function monitorAutomaticSync() {
+  window.clearTimeout(state.syncPollTimer);
+  state.syncPollTimer = window.setTimeout(async () => {
+    try {
+      const result = await request("/api/sync-status");
+      const sync = result.sync || {};
+      if (sync.state === "running") {
+        state.syncWasRunning = true;
+        el("#syncIndicator").hidden = false;
+        el("#syncIndicatorText").textContent = "Syncing every active keyword across all storefronts…";
+        monitorAutomaticSync();
+        return;
+      }
+      el("#syncIndicator").hidden = true;
+      if (state.syncWasRunning) {
+        state.syncWasRunning = false;
+        await loadDashboard({ quiet: true });
+        if (sync.state === "error") toast(`Automatic sync failed: ${sync.error || "unknown error"}`, true);
+        else toast(`Automatic sync complete: ${sync.searches || 0} searches${sync.failures ? `, ${sync.failures} failed` : ""}.`, Boolean(sync.failures));
+      }
+    } catch {
+      state.syncPollTimer = window.setTimeout(monitorAutomaticSync, 15000);
+    }
+  }, state.syncWasRunning ? 5000 : 2500);
+}
+
 function renderSidebar() {
   el("#setupButton").disabled = false;
-  const apps = state.data.apps || [];
+  const apps = (state.data.apps || []).filter((app) => app.active);
   el("#appCount").textContent = `${apps.length} local app${apps.length === 1 ? "" : "s"}`;
-  const selectedArtwork = state.data.listing?.artworkUrl;
   el("#appList").innerHTML = apps.map((app, index) => {
     const selected = app.appleAppId === state.appId;
-    const icon = selected && selectedArtwork
-      ? `<img src="${escapeAttr(selectedArtwork)}" alt="">`
+    const icon = app.artworkUrl
+      ? `<img src="${escapeAttr(app.artworkUrl)}" alt="">`
       : escapeHtml(initials(app.name));
-    return `<button class="app-list-item ${selected ? "active" : ""}" data-app-id="${app.appleAppId}">
-      <span class="app-avatar ${index % 2 ? "alt" : ""}">${icon}</span>
-      <span><span class="app-name">${escapeHtml(app.name)}</span><span class="app-meta">${app.active ? "Tracking active" : "Inactive"}</span></span>
-      <span class="country-badge">${countryFlag(state.country)} ${escapeHtml(state.country.toUpperCase())}</span>
-    </button>`;
+    return `<div class="app-list-row ${selected ? "selected" : ""}">
+      <button class="app-list-item ${selected ? "active" : ""}" data-app-id="${app.appleAppId}">
+        <span class="app-avatar ${index % 2 ? "alt" : ""}">${icon}</span>
+        <span><span class="app-name">${escapeHtml(app.name)}</span><span class="app-meta">Tracking active</span></span>
+        <span class="country-badge">${countryFlag(state.country)} ${escapeHtml(state.country.toUpperCase())}</span>
+      </button>
+      <button class="app-delete-button" data-delete-app-id="${app.appleAppId}" aria-label="Remove ${escapeAttr(app.name)}" title="Remove app">×</button>
+    </div>`;
   }).join("") || `<div class="empty-state"><p>Add your first app to begin.</p></div>`;
   all(".app-list-item").forEach((button) => button.addEventListener("click", () => {
+    closeNicheWorkspace();
     state.appId = Number(button.dataset.appId);
     state.selectedTarget = null;
     state.filter = "";
+    resetCoverage();
     el("#keywordFilter").value = "";
     el("#sidebar").classList.remove("open");
     loadDashboard();
   }));
+}
+
+function appListClick(event) {
+  const button = event.target.closest("[data-delete-app-id]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const appId = Number(button.dataset.deleteAppId);
+  const app = (state.data.apps || []).find((item) => item.appleAppId === appId);
+  if (!app) return;
+  state.pendingDeleteApp = appId;
+  el("#deleteAppMessage").textContent = `Remove “${app.name}” from this workspace? Its ranking targets and history will remain recoverable in the local database.`;
+  el("#deleteAppModal").showModal();
+}
+
+async function confirmDeleteApp() {
+  if (!state.pendingDeleteApp) return;
+  const appId = state.pendingDeleteApp;
+  const app = (state.data.apps || []).find((item) => item.appleAppId === appId);
+  state.pendingDeleteApp = null;
+  el("#deleteAppModal").close();
+  setBusy(true);
+  try {
+    await request("/api/apps/deactivate", { method: "POST", body: { appleId: appId } });
+    if (state.appId === appId) state.appId = null;
+    state.selectedTarget = null;
+    state.filter = "";
+    el("#keywordFilter").value = "";
+    toast(`${app?.name || "App"} removed. Its tracking history was preserved.`);
+    await loadDashboard({ quiet: true });
+  } catch (error) { toast(error.message, true); }
+  finally { setBusy(false); }
 }
 
 function renderCountryControls() {
@@ -127,7 +236,56 @@ function openKeywordModal() {
   all('#deviceChecks input[name="device"]').forEach((input) => {
     input.checked = input.value === state.device;
   });
+  resetLocalization();
   el("#keywordModal").showModal();
+}
+
+function toggleAllCountries() {
+  const countries = all('#countryChecks input[name="country"]');
+  const selectAll = countries.some((input) => !input.checked);
+  countries.forEach((input) => { input.checked = selectAll; });
+  el("#selectAllCountries").textContent = selectAll ? "Clear all" : "Select all";
+  resetLocalization();
+}
+
+function resetLocalization() {
+  state.localization = null;
+  el("#localizationPreview").hidden = true;
+  el("#localizationPreview").innerHTML = "";
+  el("#keywordSubmit").textContent = "Add keywords";
+}
+
+async function localizeKeywordInput() {
+  const countries = all('#countryChecks input:checked').map((input) => input.value);
+  const keywords = el("#keywordInput").value.trim();
+  if (!keywords) { toast("Enter at least one keyword.", true); return; }
+  if (!countries.length) { toast("Select at least one storefront.", true); return; }
+  const button = el("#localizeKeywordsButton");
+  button.disabled = true;
+  try {
+    const result = await request("/api/keywords/localize", { method: "POST", body: { keywords, countries } });
+    if (!result.groups.length) {
+      resetLocalization();
+      toast("No curated translations were found for the selected languages.", true);
+      return;
+    }
+    state.localization = result;
+    renderLocalizationPreview(result);
+    el("#keywordSubmit").textContent = "Add localized keywords";
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+function renderLocalizationPreview(result) {
+  const groups = result.groups.map((group) => `<div class="localization-group">
+    <div class="localization-group-head"><strong>${escapeHtml(group.language)}</strong><span>${group.countries.map(countryFlag).join(" ")}</span></div>
+    <div class="translation-chips">${group.keywords.map((keyword) => `<span class="translation-chip">${escapeHtml(keyword)}</span>`).join("")}</div>
+  </div>`).join("");
+  const warning = result.warnings.length
+    ? `<p class="localization-warning">${result.warnings.length} uncurated phrase${result.warnings.length === 1 ? "" : "s"} skipped outside English: ${[...new Set(result.warnings.map((item) => escapeHtml(item.keyword)))].join(", ")}.</p>`
+    : "";
+  el("#localizationPreview").innerHTML = `<div class="localization-preview-head"><strong>Localization preview</strong><span>Review before adding</span></div>${groups}${warning}`;
+  el("#localizationPreview").hidden = false;
 }
 
 function renderHero() {
@@ -152,6 +310,65 @@ function renderHero() {
   el("#heroHealthButton")?.addEventListener("click", () => switchTab("health"));
 }
 
+function renderCountryVisibility() {
+  const container = el("#countryVisibility");
+  if (!state.data || !state.data.listing) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  const rankings = state.data.rankings || [];
+  const cards = (state.data.countries || []).map((country) => {
+    const tracked = Number(state.data.targetCounts?.[`${country.code}:${state.device}`] || 0);
+    const top10 = rankings.filter((row) => row.country === country.code && row.device === state.device && row.found && row.rank != null && row.rank <= 10).length;
+    return { ...country, tracked, top10 };
+  }).filter((country) => country.tracked > 0).sort((a, b) => (
+    Number(b.code === state.country) - Number(a.code === state.country)
+    || b.top10 - a.top10
+    || b.tracked - a.tracked
+    || a.name.localeCompare(b.name)
+  ));
+  container.hidden = cards.length === 0;
+  if (!cards.length) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = cards.map((country) => {
+    const percent = Math.round((country.top10 / country.tracked) * 100);
+    const tone = country.top10 === 0 ? "zero" : percent >= 50 ? "strong" : "some";
+    return `<button class="country-rank-card ${tone} ${country.code === state.country ? "selected" : ""}" data-country-card="${escapeAttr(country.code)}" ${country.active ? "" : "disabled"} aria-pressed="${country.code === state.country}" aria-label="${escapeAttr(country.name)}: ${country.top10} of ${country.tracked} ${deviceName(state.device)} keywords in the Top 10">
+      <span class="country-rank-head"><span class="country-rank-flag">${countryFlag(country.code)}</span><strong>${escapeHtml(country.name)}</strong></span>
+      <span class="country-rank-count"><strong>${country.top10}</strong><span>/${country.tracked}</span></span>
+      <span class="country-rank-note">in the Top 10</span>
+      <span class="country-rank-progress" aria-hidden="true"><i style="width:${percent}%"></i></span>
+    </button>`;
+  }).join("");
+}
+
+async function countryVisibilityClick(event) {
+  const button = event.target.closest("[data-country-card]");
+  if (!button || button.disabled) return;
+  if (button.dataset.countryCard === state.country) {
+    state.tab = "rankings";
+    switchTab("rankings", false);
+    el("#rankingsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  state.country = button.dataset.countryCard;
+  state.selectedTarget = null;
+  state.filter = "";
+  state.tab = "rankings";
+  resetCoverage();
+  el("#keywordFilter").value = "";
+  renderCountryControls();
+  renderHero();
+  renderCountryVisibility();
+  renderRankings();
+  switchTab("rankings", false);
+  el("#rankingsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  await loadDashboard({ quiet: true });
+}
+
 function filteredRows() {
   return countryRows().filter((row) => !state.filter || row.keyword.toLowerCase().includes(state.filter));
 }
@@ -166,32 +383,45 @@ function renderRankings() {
   const metricRows = countryRows();
   const found = metricRows.filter((row) => row.found && row.rank != null);
   const ranks = found.map((row) => row.rank);
-  const targetCount = state.data.targetCounts?.[`${state.country}:${state.device}`] || 0;
+  const trackedCount = state.data.targetCounts?.[`${state.country}:${state.device}`] || 0;
+  const trends = state.data.metricTrends?.[`${state.country}:${state.device}`] || {};
+  const trends30d = state.data.metricTrends30d?.[`${state.country}:${state.device}`] || {};
   const metrics = [
-    ["Tracked", targetCount, `${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)}`, "⌕"],
-    ["Top 10", ranks.filter((rank) => rank <= 10).length, "Defend visibility", "↑"],
-    ["Top 50", ranks.filter((rank) => rank <= 50).length, "Growth range", "◎"],
-    ["Not visible", metricRows.filter((row) => !row.found).length, `Outside retrieved window`, "—"],
-    ["Average rank", ranks.length ? (ranks.reduce((a, b) => a + b, 0) / ranks.length).toFixed(1) : "—", "Found keywords only", "∿"],
+    { label: "Top 10", value: ranks.filter((rank) => rank <= 10).length, note: "Defend visibility", icon: "↑", trend: trends.top10, trend30d: trends30d.top10, threshold: 10 },
+    { label: "Top 50", value: ranks.filter((rank) => rank <= 50).length, note: "Growth range", icon: "◎", trend: trends.top50, trend30d: trends30d.top50, threshold: 50 },
+    { label: "Average rank", value: ranks.length ? (ranks.reduce((a, b) => a + b, 0) / ranks.length).toFixed(1) : "—", note: "Found keywords only", icon: "∿", trend: trends.averageRank, trend30d: trends30d.averageRank, series: "averageRank" },
   ];
-  el("#metrics").innerHTML = metrics.map(([label, value, note, icon]) => `<article class="metric"><span class="metric-label">${label}<b>${icon}</b></span><strong class="metric-value">${value}</strong><span class="metric-note">${note}</span></article>`).join("");
+  el("#metrics").innerHTML = metrics.map((metric) => {
+    const interactive = Boolean(metric.threshold || metric.series);
+    const tag = interactive ? "button" : "article";
+    const attributes = interactive
+      ? ` type="button" data-metric-series="${metric.threshold ? `top${metric.threshold}` : metric.series}" aria-label="View ${metric.label} rank history"`
+      : "";
+    return `<${tag} class="metric ${interactive ? "metric-clickable" : ""}"${attributes}><span class="metric-label">${metric.label}<b>${metric.icon}</b></span><div class="metric-value-row"><strong class="metric-value">${metric.value}</strong><span class="metric-trend-stack">${metricTrend(metric.trend, metric.label, 7)}${metricTrend(metric.trend30d, metric.label, 30)}</span></div><span class="metric-note">${metric.note}</span></${tag}>`;
+  }).join("");
 
   el("#rankingsBody").innerHTML = rows.map((row) => {
     const changeClass = row.change === "NEW" ? "new" : row.change === "LOST" ? "lost" : row.change.startsWith("+") ? "up" : row.change.startsWith("-") ? "down" : "flat";
     const signalClass = row.opportunity.startsWith("Defend") ? "defend" : row.opportunity.includes("Growth") ? "growth" : row.opportunity.includes("visible") ? "absent" : "";
+    const volumeTone = row.volumeEstimate == null ? "" : row.volumeEstimate >= 35 ? " volume-strong" : row.volumeEstimate >= 15 ? " volume-mid" : " volume-low";
+    const difficultyTone = row.difficultyEstimate == null ? "" : row.difficultyEstimate >= 67 ? " difficulty-hard" : row.difficultyEstimate >= 34 ? " difficulty-mid" : " difficulty-low";
     return `<tr data-target-id="${row.targetId}" class="${row.targetId === state.selectedTarget ? "selected" : ""}">
-      <td class="keyword-cell">${escapeHtml(row.keyword)}</td><td><span class="country-badge">${countryFlag(row.country)} ${row.country.toUpperCase()}</span></td><td><span class="device-badge ${escapeAttr(row.device)}">${deviceIcon(row.device)} ${deviceName(row.device)}</span></td>
-      <td><span class="rank-number ${row.rank && row.rank <= 10 ? "top" : ""}">${row.found ? `#${row.rank}` : `>${row.resultLimit}`}</span></td>
-      <td><span class="movement ${changeClass}">${escapeHtml(row.change)}</span></td><td><span class="signal ${signalClass}">${escapeHtml(shortOpportunity(row.opportunity))}</span></td>
-      <td>${formatDate(row.checkedAt)}</td><td><button class="row-action" data-delete-target="${row.targetId}" title="Stop tracking">×</button></td>
+      <td class="keyword-cell" title="${escapeAttr(row.keyword)}">${escapeHtml(row.keyword)}</td><td class="country-cell"><span class="country-badge">${countryFlag(row.country)} ${row.country.toUpperCase()}</span></td><td class="device-cell"><span class="device-badge ${escapeAttr(row.device)}">${deviceIcon(row.device)} ${deviceName(row.device)}</span></td>
+      <td class="rank-cell"><span class="rank-number ${row.rank && row.rank <= 10 ? "top" : ""}">${row.found ? `#${row.rank}` : `>${row.resultLimit}`}</span></td>
+      <td class="estimate-cell volume-cell${volumeTone}">${estimateCell(row.volumeEstimate, "volume", row.estimateSampleSize)}</td>
+      <td class="estimate-cell difficulty-cell${difficultyTone}">${estimateCell(row.difficultyEstimate, "difficulty", row.estimateSampleSize)}</td>
+      <td class="top-apps-cell">${topAppsCell(row.topApps)}</td>
+      <td class="movement-cell"><span class="movement ${changeClass}">${escapeHtml(row.change)}</span></td><td class="signal-cell"><span class="signal ${signalClass}">${escapeHtml(shortOpportunity(row.opportunity))}</span></td>
+      <td class="updated-cell">${formatDate(row.checkedAt)}</td><td class="action-cell"><button class="row-action" data-delete-target="${row.targetId}" title="Stop tracking">×</button></td>
     </tr>`;
   }).join("");
+  hideTopAppTooltip();
   const emptyTitle = el("#rankingsEmpty h3");
   const emptyCopy = el("#rankingsEmpty p");
   if (state.filter) {
     emptyTitle.textContent = "No matching keywords";
     emptyCopy.textContent = "Try a different keyword filter.";
-  } else if (targetCount > 0) {
+  } else if (trackedCount > 0) {
     emptyTitle.textContent = "No checks yet";
     emptyCopy.textContent = "Run a check to retrieve the first rankings for this storefront.";
   } else {
@@ -202,6 +432,44 @@ function renderRankings() {
   el("#rankingsBody").closest(".table-scroll").hidden = rows.length === 0;
   if (state.selectedTarget && rows.some((row) => row.targetId === state.selectedTarget)) renderHistory();
   else el("#historyCard").hidden = true;
+  renderOverallRankHistory();
+  renderLosingTo();
+}
+
+function topAppsCell(apps = []) {
+  if (!apps.length) return `<span class="top-apps-empty">—</span>`;
+  const icons = apps.map((app) => {
+    const fallback = escapeHtml(initials(app.name));
+    const image = app.artworkUrl
+      ? `<img src="${escapeAttr(app.artworkUrl)}" alt="" loading="lazy">`
+      : "";
+    return `<span class="top-app-preview" tabindex="0" role="img" aria-label="Top result ${app.position}: ${escapeAttr(app.name)}" data-app-name="${escapeAttr(app.name)}"><span class="top-app-avatar">${fallback}${image}</span></span>`;
+  }).join("");
+  return `<span class="top-app-stack"><span class="top-apps-label">Top 5</span>${icons}</span>`;
+}
+
+function topAppPreviewFromEvent(event) {
+  const preview = event.target.closest(".top-app-preview");
+  return preview && el("#rankingsBody").contains(preview) ? preview : null;
+}
+
+function showTopAppTooltip(event) {
+  const preview = topAppPreviewFromEvent(event);
+  if (!preview) return;
+  const tooltip = el("#appTooltip");
+  tooltip.textContent = preview.dataset.appName;
+  tooltip.hidden = false;
+  const rect = preview.getBoundingClientRect();
+  const width = tooltip.offsetWidth;
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+  const above = rect.top - tooltip.offsetHeight - 8;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${above >= 8 ? above : rect.bottom + 8}px`;
+}
+
+function hideTopAppTooltip(event) {
+  if (event?.relatedTarget && event.currentTarget?.contains?.(event.relatedTarget)) return;
+  el("#appTooltip").hidden = true;
 }
 
 async function rankingClick(event) {
@@ -212,6 +480,7 @@ async function rankingClick(event) {
     el("#confirmModal").showModal();
     return;
   }
+  if (event.target.closest(".top-app-preview")) return;
   const row = event.target.closest("tr[data-target-id]");
   if (!row) return;
   state.selectedTarget = Number(row.dataset.targetId);
@@ -249,8 +518,263 @@ function renderHistory() {
   host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Rank history; higher is better">${guides}<polyline points="${coords}" fill="none" stroke="#ff5b2e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${dots}${labels}</svg>`;
 }
 
+function resetCoverage() {
+  state.coverageStep = 1;
+  state.coverageCountry = null;
+  state.coverageDraft = null;
+  state.coverageAnalysis = null;
+}
+
+function renderListingCoverage() {
+  const card = el("#coverageCard");
+  if (!state.appId || !state.data?.listing) {
+    card.innerHTML = `<div class="empty-state"><h3>Choose an app to analyse listing coverage.</h3></div>`;
+    return;
+  }
+  if (!state.coverageCountry) state.coverageCountry = state.country;
+  if (state.coverageStep >= 2 && !state.coverageDraft) {
+    const saved = state.data.listingMetadata;
+    state.coverageDraft = {
+      name: saved?.name || state.data.listing.name || "",
+      subtitle: saved?.subtitle || "",
+      keywords: saved?.keywords || "",
+    };
+  }
+  const progress = [1, 2, 3].map((step) => `<li class="${state.coverageStep === step ? "current" : state.coverageStep > step ? "complete" : ""}"><span>${state.coverageStep > step ? "✓" : step}</span>${["Storefront", "Listing metadata", "Coverage"][step - 1]}</li>`).join("");
+  let body = "";
+  if (state.coverageStep === 1) {
+    const options = (state.data.countries || []).filter((country) => country.active).map((country) => `<option value="${country.code}" ${country.code === state.coverageCountry ? "selected" : ""}>${countryFlag(country.code)} ${country.code.toUpperCase()} · ${escapeHtml(country.name)}</option>`).join("");
+    body = `<div class="coverage-intro"><div class="coverage-step-number">1</div><div><h3>Choose your main listing storefront</h3><p>Select the market where this localized listing is published. We’ll load its public App Store name next.</p></div></div>
+      <label class="field coverage-country-field"><span>Main listing storefront</span><select id="coverageCountrySelect">${options}</select></label>
+      <div class="coverage-actions"><button type="button" class="button button-primary" id="coverageLoadButton">Load listing data</button></div>`;
+  } else if (state.coverageStep === 2) {
+    const draft = state.coverageDraft;
+    body = `<div class="coverage-intro"><div class="coverage-step-number">2</div><div><h3>Review the listing metadata</h3><p>Apple’s public API supplies the app name. Subtitle and keyword field are not exposed publicly, so paste them from App Store Connect. They stay in your local SQLite database.</p></div></div>
+      <form id="coverageForm" class="coverage-form">
+        <label class="field"><span class="coverage-field-label">Name <small id="coverageNameCount">${draft.name.length}/30</small></span><input id="coverageName" maxlength="30" required value="${escapeAttr(draft.name)}"></label>
+        <label class="field"><span class="coverage-field-label">Subtitle <small id="coverageSubtitleCount">${draft.subtitle.length}/30</small></span><input id="coverageSubtitle" maxlength="30" value="${escapeAttr(draft.subtitle)}" placeholder="Paste the localized subtitle"></label>
+        <label class="field"><span class="coverage-field-label">Keyword field <small id="coverageKeywordsCount">${draft.keywords.length}/100</small></span><input id="coverageKeywords" maxlength="100" value="${escapeAttr(draft.keywords)}" placeholder="keyword one, keyword two, keyword three"><small>Comma-separated. This is the App Store keyword field, not Apple search volume.</small></label>
+        <div class="coverage-actions"><button type="button" class="button button-ghost" id="coverageBackButton">Back</button><button type="submit" class="button button-primary" id="coverageAnalyzeButton">Analyse coverage</button></div>
+      </form>`;
+  } else {
+    const analysis = state.coverageAnalysis;
+    const matches = analysis.matched || [];
+    body = `<div class="coverage-intro"><div class="coverage-step-number">3</div><div><h3>Listing keyword coverage</h3><p>${escapeHtml(state.coverageDraft.name)} · ${countryFlag(state.coverageCountry)} ${escapeHtml(state.coverageCountry.toUpperCase())} · ${deviceName(state.device)}</p></div></div>
+      <div class="coverage-summary">
+        <div><span>Targeted terms</span><strong>${analysis.target_terms}</strong><small>${analysis.keyword_field_terms} keyword-field entries</small></div>
+        <div><span>Tracked in listing</span><strong>${analysis.tracked_matches}</strong><small>keywords found in metadata</small></div>
+        <div><span>Already ranking</span><strong>${analysis.ranked_keywords}</strong><small>with a returned position</small></div>
+        <div><span>Not ranking</span><strong>${analysis.unranked_keywords}</strong><small>outside the result window</small></div>
+      </div>
+      <div class="coverage-terms"><strong>Keyword field</strong><div>${analysis.keyword_field_entries.length ? analysis.keyword_field_entries.map((term) => `<span>${escapeHtml(term)}</span>`).join("") : "No keyword field entries."}</div></div>
+      <div class="coverage-matched"><strong>Tracked keyword matches</strong>${matches.length ? matches.map((item) => `<div class="coverage-match ${item.found ? "ranked" : "unranked"}"><span>${escapeHtml(item.keyword)}</span><small>${item.sources.map(escapeHtml).join(" · ")}</small><b>${item.found ? `#${item.rank}` : `>${item.result_limit}`}</b></div>`).join("") : `<p>No currently tracked keywords appear in this metadata.</p>`}</div>
+      <div class="coverage-actions"><button type="button" class="button button-ghost" id="coverageEditButton">Edit metadata</button></div>`;
+  }
+  card.innerHTML = `<div class="coverage-head"><div><p class="section-kicker">Listing audit</p><h2>Keyword coverage</h2><p>Compare the metadata you plan to target with keywords already tracked for this app.</p></div></div><ol class="coverage-progress">${progress}</ol>${body}`;
+  if (state.coverageStep === 1) {
+    el("#coverageLoadButton").addEventListener("click", loadCoverageListing);
+  } else if (state.coverageStep === 2) {
+    el("#coverageBackButton").addEventListener("click", () => {
+      state.coverageStep = 1;
+      renderListingCoverage();
+    });
+    el("#coverageForm").addEventListener("submit", analyseCoverage);
+    bindCoverageCounter("#coverageName", "#coverageNameCount");
+    bindCoverageCounter("#coverageSubtitle", "#coverageSubtitleCount");
+    bindCoverageCounter("#coverageKeywords", "#coverageKeywordsCount");
+  } else {
+    el("#coverageEditButton").addEventListener("click", () => {
+      state.coverageStep = 2;
+      renderListingCoverage();
+    });
+  }
+}
+
+function bindCoverageCounter(inputSelector, counterSelector) {
+  const input = el(inputSelector);
+  const counter = el(counterSelector);
+  input.addEventListener("input", () => {
+    counter.textContent = `${input.value.length}/${input.maxLength}`;
+  });
+}
+
+async function loadCoverageListing() {
+  const selected = el("#coverageCountrySelect").value;
+  state.coverageCountry = selected;
+  state.coverageStep = 2;
+  state.coverageDraft = null;
+  state.coverageAnalysis = null;
+  if (selected !== state.country) {
+    state.country = selected;
+    await loadDashboard({ quiet: true });
+  } else {
+    renderListingCoverage();
+  }
+}
+
+async function analyseCoverage(event) {
+  event.preventDefault();
+  const name = el("#coverageName").value.trim();
+  const subtitle = el("#coverageSubtitle").value.trim();
+  const keywords = el("#coverageKeywords").value.trim();
+  if (!name) { toast("Enter the listing name.", true); return; }
+  setBusy(true);
+  try {
+    const result = await request("/api/listing-metadata", {
+      method: "POST",
+      body: { appId: state.appId, country: state.coverageCountry, device: state.device, name, subtitle, keywords },
+    });
+    state.coverageDraft = {
+      name: result.metadata.name,
+      subtitle: result.metadata.subtitle,
+      keywords: result.metadata.keywords,
+    };
+    state.data.listingMetadata = result.metadata;
+    state.coverageAnalysis = result.analysis;
+    state.coverageStep = 3;
+    renderListingCoverage();
+  } catch (error) { toast(error.message, true); }
+  finally { setBusy(false); }
+}
+
+function dailyKeywordSnapshots() {
+  const checks = (state.data.history || []).filter((point) => point.country === state.country && point.device === state.device);
+  const byDate = new Map();
+  for (const check of checks) {
+    const key = localDateKey(check.checkedAt);
+    if (!byDate.has(key)) byDate.set(key, new Map());
+    const latest = byDate.get(key).get(check.targetId);
+    if (!latest || new Date(check.checkedAt) > new Date(latest.checkedAt)) {
+      byDate.get(key).set(check.targetId, check);
+    }
+  }
+  return [...byDate.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([dateKey, targetChecks]) => {
+      const latest = [...targetChecks.values()];
+      const ranks = latest.filter((check) => check.found && check.rank != null).map((check) => check.rank);
+      return {
+        dateKey,
+        timestamp: new Date(`${dateKey}T12:00:00`).getTime(),
+        tracked: latest.length,
+        found: ranks.length,
+        top10: ranks.filter((rank) => rank <= 10).length,
+        top50: ranks.filter((rank) => rank <= 50).length,
+        averageRank: ranks.length ? ranks.reduce((sum, rank) => sum + rank, 0) / ranks.length : null,
+      };
+    });
+}
+
+function renderOverallRankHistory() {
+  const host = el("#overallRankChart");
+  const points = dailyKeywordSnapshots().filter((point) => point.averageRank != null);
+
+  el("#overallAverageRank").textContent = points.length ? `#${points.at(-1).averageRank.toFixed(1)}` : "—";
+  if (!points.length) {
+    host.innerHTML = `<div class="chart-empty">Run checks on more than one day to build an overall rank trend.</div>`;
+    return;
+  }
+  const width = 920, height = 250, left = 50, right = 18, top = 22, bottom = 34;
+  const maxRank = Math.max(10, ...points.map((point) => Math.ceil(point.averageRank)));
+  const minTime = Math.min(...points.map((point) => point.timestamp));
+  const maxTime = Math.max(...points.map((point) => point.timestamp));
+  const x = (timestamp) => points.length === 1 ? width / 2 : left + ((timestamp - minTime) / Math.max(maxTime - minTime, 1)) * (width - left - right);
+  const y = (rank) => top + ((rank - 1) / Math.max(maxRank - 1, 1)) * (height - top - bottom);
+  const guides = [1, Math.ceil(maxRank / 2), maxRank].map((rank) => `<line x1="${left}" y1="${y(rank)}" x2="${width-right}" y2="${y(rank)}" stroke="#e5e5de"/><text x="${left-10}" y="${y(rank)+4}" text-anchor="end" fill="#777872" font-size="10">#${rank}</text>`).join("");
+  const coords = points.map((point) => `${x(point.timestamp)},${y(point.averageRank)}`).join(" ");
+  const dots = points.map((point) => `<circle cx="${x(point.timestamp)}" cy="${y(point.averageRank)}" r="4.5" fill="#15966a" stroke="#fff" stroke-width="3"><title>${formatDate(point.dateKey)} · Avg #${point.averageRank.toFixed(1)} · ${point.found}/${point.tracked} found</title></circle>`).join("");
+  const labels = points.length > 1 ? `<text x="${left}" y="${height-7}" fill="#777872" font-size="10">${formatDate(points[0].dateKey)}</text><text x="${width-right}" y="${height-7}" text-anchor="end" fill="#777872" font-size="10">${formatDate(points.at(-1).dateKey)}</text>` : "";
+  host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Average rank across tracked keywords; higher is better">${guides}<polyline points="${coords}" fill="none" stroke="#15966a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+}
+
+function metricCardClick(event) {
+  const card = event.target.closest("[data-metric-series]");
+  if (!card) return;
+  openMetricHistory(card.dataset.metricSeries);
+}
+
+function openMetricHistory(series) {
+  const rankSeries = series === "averageRank";
+  const threshold = series === "top10" ? 10 : series === "top50" ? 50 : null;
+  const points = rankSeries
+    ? dailyKeywordSnapshots().filter((point) => point.averageRank != null)
+    : dailyKeywordSnapshots();
+  const color = rankSeries ? "#d88738" : threshold === 10 ? "#15966a" : "#7258cc";
+  const latestValue = points.length ? points.at(-1)[series] : null;
+  el("#metricHistoryTitle").textContent = rankSeries ? "Average rank evolution" : `Top ${threshold} evolution`;
+  el("#metricHistoryLatest").textContent = latestValue == null ? "—" : rankSeries ? `#${latestValue.toFixed(1)}` : String(latestValue);
+  el("#metricHistoryCaption").textContent = rankSeries ? "average rank" : `keywords in Top ${threshold}`;
+  el("#metricHistoryPeriod").textContent = points.length
+    ? `${points.length} daily data point${points.length === 1 ? "" : "s"}`
+    : "";
+  el("#metricHistoryMethodology").textContent = rankSeries
+    ? `Daily average rank of found keywords for ${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)}. Missing apps are excluded. Each keyword contributes its latest successful check that day.`
+    : `Daily count of tracked keywords ranking in the Top ${threshold} for ${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)}. Each keyword contributes its latest successful check that day.`;
+  renderMetricHistoryChart(points, series, threshold, color);
+  el("#metricHistoryModal").showModal();
+}
+
+function renderMetricHistoryChart(points, valueKey, threshold, color) {
+  const host = el("#metricHistoryChart");
+  if (!points.length) {
+    host.innerHTML = `<div class="chart-empty">Run checks over multiple days to build this trend.</div>`;
+    return;
+  }
+  const width = 920, height = 290, left = 48, right = 18, top = 22, bottom = 34;
+  const rankSeries = valueKey === "averageRank";
+  const maxValue = rankSeries ? Math.max(10, ...points.map((point) => Math.ceil(point[valueKey]))) : Math.max(1, ...points.map((point) => point[valueKey]));
+  const minTime = Math.min(...points.map((point) => point.timestamp));
+  const maxTime = Math.max(...points.map((point) => point.timestamp));
+  const x = (timestamp) => points.length === 1 ? width / 2 : left + ((timestamp - minTime) / Math.max(maxTime - minTime, 1)) * (width - left - right);
+  const y = rankSeries
+    ? (value) => top + ((value - 1) / Math.max(maxValue - 1, 1)) * (height - top - bottom)
+    : (value) => height - bottom - (value / maxValue) * (height - top - bottom);
+  const guideValues = rankSeries ? [1, Math.ceil(maxValue / 2), maxValue] : [...new Set([0, Math.ceil(maxValue / 2), maxValue])];
+  const guides = guideValues.map((value) => `<line x1="${left}" y1="${y(value)}" x2="${width-right}" y2="${y(value)}" stroke="#e5e5de"/><text x="${left-10}" y="${y(value)+4}" text-anchor="end" fill="#777872" font-size="10">${rankSeries ? "#" : ""}${value}</text>`).join("");
+  const coords = points.map((point) => `${x(point.timestamp)},${y(point[valueKey])}`).join(" ");
+  const dots = points.map((point) => `<circle cx="${x(point.timestamp)}" cy="${y(point[valueKey])}" r="4.5" fill="${color}" stroke="#fff" stroke-width="3"><title>${formatDate(point.dateKey)} · ${rankSeries ? `Avg #${point[valueKey].toFixed(1)}` : `${point[valueKey]} keyword${point[valueKey] === 1 ? "" : "s"} in Top ${threshold}`}</title></circle>`).join("");
+  const labels = points.length > 1 ? `<text x="${left}" y="${height-7}" fill="#777872" font-size="10">${formatDate(points[0].dateKey)}</text><text x="${width-right}" y="${height-7}" text-anchor="end" fill="#777872" font-size="10">${formatDate(points.at(-1).dateKey)}</text>` : "";
+  const label = rankSeries ? "Average keyword rank over time; higher is better" : `Top ${threshold} keyword count over time; higher is better`;
+  host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}">${guides}<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+}
+
+function renderLosingTo() {
+  el("#losingMarket").textContent = `${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)}`;
+  const competitors = new Map();
+  for (const row of countryRows()) {
+    const trackedRank = row.found && row.rank != null ? row.rank : Number.POSITIVE_INFINITY;
+    for (const app of row.topApps || []) {
+      if (app.appId === state.appId || app.position >= trackedRank) continue;
+      const existing = competitors.get(app.appId) || {
+        appId: app.appId,
+        name: app.name,
+        artworkUrl: app.artworkUrl,
+        count: 0,
+        keywords: [],
+      };
+      existing.count += 1;
+      existing.keywords.push(row.keyword);
+      competitors.set(app.appId, existing);
+    }
+  }
+  const ranked = [...competitors.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+  el("#losingCount").textContent = String(ranked.length);
+  el("#losingGrid").innerHTML = ranked.slice(0, 6).map((app) => {
+    const keywords = app.keywords.sort((left, right) => left.localeCompare(right));
+    const artwork = app.artworkUrl
+      ? `<img src="${escapeAttr(app.artworkUrl)}" alt="" loading="lazy">`
+      : escapeHtml(initials(app.name));
+    return `<article class="losing-item" title="${escapeAttr(`${app.name} — Ahead in: ${keywords.join(", ")}`)}">
+      <span class="losing-icon">${artwork}</span>
+      <span class="losing-copy"><strong>${escapeHtml(app.name)}</strong><small>${app.count === 1 ? "keyword" : "keywords"}</small></span>
+      <span class="losing-value"><strong>${app.count}</strong><small>ahead</small></span>
+    </article>`;
+  }).join("") || `<div class="losing-empty">No Top 5 competitors are currently ahead of this app in the selected market.</div>`;
+}
+
 function renderHealth() {
   const health = state.data.health;
+  renderListingCoverage();
   renderScreenshots();
   if (!health) {
     el("#healthScoreCard").innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><h3>Listing unavailable</h3><p>${escapeHtml(state.data.listingError || "Apple did not return listing metadata.")}</p></div>`;
@@ -344,9 +868,13 @@ async function addKeyword(event) {
   if (!devices.length) { toast("Select at least one device.", true); return; }
   setBusy(true);
   try {
-    const result = await request("/api/keywords", { method: "POST", body: { appId: state.appId, keywords: el("#keywordInput").value, countries, devices } });
+    const body = state.localization
+      ? { appId: state.appId, groups: state.localization.groups, devices }
+      : { appId: state.appId, keywords: el("#keywordInput").value, countries, devices };
+    const result = await request("/api/keywords", { method: "POST", body });
     el("#keywordModal").close();
     el("#keywordForm").reset();
+    resetLocalization();
     const changed = result.targetsCreated + result.targetsReactivated;
     const details = [result.targetsReactivated ? `${result.targetsReactivated} reactivated` : "", result.targetsUnchanged ? `${result.targetsUnchanged} already tracked` : ""].filter(Boolean);
     const suffix = details.length ? ` (${details.join(", ")})` : "";
@@ -380,6 +908,220 @@ async function mutate(url, body, success) {
   try { await request(url, { method: "POST", body }); toast(success); state.selectedTarget = null; await loadDashboard({ quiet: true }); }
   catch (error) { toast(error.message, true); }
   finally { setBusy(false); }
+}
+
+async function openNicheWorkspace() {
+  state.nicheView = true;
+  el("#appContentWrap").hidden = true;
+  el("#nicheWorkspace").hidden = false;
+  el("#nicheNavButton").classList.add("active");
+  all("[data-tab-target]").forEach((button) => button.classList.remove("active"));
+  el("#sidebar").classList.remove("open");
+  if (!state.nicheLoaded) await loadNicheWorkspace();
+}
+
+function closeNicheWorkspace() {
+  state.nicheView = false;
+  el("#nicheWorkspace").hidden = true;
+  el("#appContentWrap").hidden = false;
+  el("#nicheNavButton").classList.remove("active");
+}
+
+async function loadNicheWorkspace(boardId) {
+  setBusy(true);
+  try {
+    const query = boardId ? `?boardId=${boardId}` : "";
+    state.niche = await request(`/api/niche${query}`);
+    state.nicheLoaded = true;
+    renderNicheWorkspace();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderNicheWorkspace() {
+  if (!state.niche) return;
+  const providers = state.niche.providers || [];
+  const available = providers.filter((provider) => provider.available);
+  el("#nicheAgentStatus").textContent = available.length
+    ? `${available.map((provider) => provider.label).join(" + ")} available`
+    : "No local agent found";
+  renderNicheProviderSelect("#nicheProvider", providers, state.niche.defaultProvider);
+  renderNicheProviderSelect("#nicheAgentProvider", providers, state.niche.defaultProvider);
+  el("#nicheBoardSelect").innerHTML = (state.niche.boards || []).map((board) => `<option value="${board.id}" ${board.id === state.niche.selectedBoardId ? "selected" : ""}>${escapeHtml(board.name)}</option>`).join("");
+  const board = state.niche.board;
+  el("#nicheEmpty").hidden = Boolean(board);
+  el("#nicheContent").hidden = !board;
+  if (!board) return;
+  el("#nicheBoardKicker").textContent = `${board.keywords.length} keyword${board.keywords.length === 1 ? "" : "s"} · ${board.countries.length} market${board.countries.length === 1 ? "" : "s"}`;
+  el("#nicheBoardTitle").textContent = board.name;
+  el("#nicheBoardBrief").textContent = board.brief;
+  const checkedTimes = board.keywords.flatMap((keyword) => keyword.metrics.map((metric) => metric.checkedAt)).filter(Boolean);
+  el("#nicheChecked").textContent = checkedTimes.length
+    ? `Checked ${formatDate(checkedTimes.sort().at(-1))}`
+    : "Not checked yet";
+  const usedCountries = new Set(board.countries.map((country) => country.code));
+  const availableCountries = (state.niche.availableCountries || []).filter((country) => !usedCountries.has(country.code));
+  el("#nicheCountrySelect").innerHTML = availableCountries.length
+    ? availableCountries.map((country) => `<option value="${country.code}">${countryFlag(country.code)} ${country.code.toUpperCase()} · ${escapeHtml(country.name)}</option>`).join("")
+    : `<option value="">All storefronts added</option>`;
+  el("#nicheAddCountryButton").disabled = !availableCountries.length;
+  const headers = board.countries.map((country) => `<th class="niche-country-head"><span>${countryFlag(country.code)}</span><strong>${escapeHtml(country.code.toUpperCase())}</strong><button class="niche-country-remove" data-remove-niche-country="${country.code}" title="Remove ${escapeAttr(country.name)}">×</button></th>`).join("");
+  const rows = board.keywords.map((keyword) => `<tr><td>${escapeHtml(keyword.keyword)}</td>${keyword.metrics.map((metric) => nicheMetricCell(metric)).join("")}</tr>`).join("");
+  el("#nicheBoardScroll").innerHTML = `<table class="niche-table"><thead><tr><th>Keyword</th>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+  all("[data-remove-niche-country]").forEach((button) => button.addEventListener("click", () => removeNicheCountry(button.dataset.removeNicheCountry)));
+}
+
+function renderNicheProviderSelect(selector, providers, defaultProvider) {
+  const select = el(selector);
+  const current = select.value || defaultProvider || "auto";
+  select.innerHTML = `<option value="auto">Auto-detect</option>${providers.map((provider) => `<option value="${provider.id}" ${provider.available ? "" : "disabled"}>${escapeHtml(provider.label)}${provider.available ? "" : " · unavailable"}</option>`).join("")}`;
+  select.value = current;
+}
+
+function nicheMetricCell(metric) {
+  if (metric.status === "error") {
+    return `<td class="niche-cell"><div class="niche-cell-inner pending" title="${escapeAttr(metric.error || "Apple search failed")}"><span>Check failed</span></div></td>`;
+  }
+  if (metric.status === "success" && (metric.volume == null || metric.difficulty == null)) {
+    return `<td class="niche-cell"><div class="niche-cell-inner pending" title="Apple returned matching apps, but none exposed public rating signals. No 0–100 estimate can be calculated."><span>No rated matches</span></div></td>`;
+  }
+  if (metric.status !== "success") {
+    return `<td class="niche-cell"><div class="niche-cell-inner pending" title="This keyword-market pair has not been checked yet."><span>Not checked</span></div></td>`;
+  }
+  const volumeTone = metric.volume >= 35 ? "good" : metric.volume >= 15 ? "mid" : "low";
+  const difficultyTone = metric.difficulty <= 33 ? "good" : metric.difficulty <= 66 ? "mid" : "high";
+  const cellTone = volumeTone === "good" && difficultyTone === "good"
+    ? "good"
+    : volumeTone === "good" && difficultyTone === "high"
+      ? "mixed"
+      : difficultyTone === "high"
+        ? "hard"
+        : volumeTone === "low"
+          ? "low"
+          : "mid";
+  const title = `Volume estimate ${metric.volume}/100; difficulty estimate ${metric.difficulty}/100; ${metric.sampleSize || 0} rated app matches.${cellTone === "mixed" ? " Mixed opportunity: good audience signal with strong competition." : ""}`;
+  return `<td class="niche-cell"><div class="niche-cell-inner ${cellTone}" title="${escapeAttr(title)}"><span class="niche-metric volume-${volumeTone}"><span>Vol</span><strong>${metric.volume}</strong></span><span class="niche-metric difficulty-${difficultyTone}"><span>Diff</span><strong>${metric.difficulty}</strong></span></div></td>`;
+}
+
+function nicheCheckSummary(check) {
+  const searches = Number(check?.searches || 0);
+  const failures = Number(check?.failures || 0);
+  const noun = searches === 1 ? "combination" : "combinations";
+  return failures
+    ? `Checked ${searches} keyword-market ${noun}; ${failures} failed.`
+    : `Checked ${searches} keyword-market ${noun}.`;
+}
+
+async function createNicheBoard(event) {
+  event.preventDefault();
+  const brief = el("#nicheBrief").value.trim();
+  if (!brief) { toast("Describe the niche first.", true); return; }
+  setBusy(true);
+  try {
+    const result = await request("/api/niche/generate", {
+      method: "POST",
+      body: { brief, provider: el("#nicheProvider").value },
+    });
+    state.niche = result;
+    el("#nicheBrief").value = "";
+    el("#nicheContent").hidden = false;
+    renderNicheWorkspace();
+    const failures = Number(result.generation.check?.failures || 0);
+    toast(
+      `${result.generation.keywords.length} keywords generated with ${result.generation.provider}, then checked across ${result.board.countries.length} markets${failures ? `; ${failures} checks failed` : ""}.`,
+      failures > 0,
+    );
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function addNicheKeywordsWithAgent(event) {
+  event.preventDefault();
+  const instruction = el("#nicheAgentInput").value.trim();
+  if (!instruction || !state.niche?.board) return;
+  setBusy(true);
+  try {
+    const result = await request("/api/niche/agent-keywords", {
+      method: "POST",
+      body: {
+        boardId: state.niche.board.id,
+        instruction,
+        provider: el("#nicheAgentProvider").value,
+      },
+    });
+    state.niche = result;
+    el("#nicheAgentInput").value = "";
+    renderNicheWorkspace();
+    const failures = Number(result.agent.check?.failures || 0);
+    toast(
+      `${result.agent.keywords.length} keyword${result.agent.keywords.length === 1 ? "" : "s"} added with ${result.agent.provider}${failures ? `; ${failures} checks failed` : ""}.`,
+      failures > 0,
+    );
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function checkNicheBoard() {
+  if (!state.niche?.board) return;
+  setBusy(true);
+  try {
+    const boardId = state.niche.board.id;
+    state.niche = await request("/api/niche/check", { method: "POST", body: { boardId } });
+    renderNicheWorkspace();
+    toast(nicheCheckSummary(state.niche.check), Number(state.niche.check?.failures || 0) > 0);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function addNicheCountry() {
+  const country = el("#nicheCountrySelect").value;
+  if (!country || !state.niche?.board) return;
+  setBusy(true);
+  try {
+    state.niche = await request("/api/niche/countries/add", {
+      method: "POST",
+      body: { boardId: state.niche.board.id, country },
+    });
+    renderNicheWorkspace();
+    const failures = Number(state.niche.countryChange?.check?.failures || 0);
+    toast(
+      `${countryFlag(country)} ${country.toUpperCase()} added${failures ? `; ${failures} checks failed` : " and checked"}.`,
+      failures > 0,
+    );
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function removeNicheCountry(country) {
+  if (!state.niche?.board) return;
+  setBusy(true);
+  try {
+    state.niche = await request("/api/niche/countries/remove", {
+      method: "POST",
+      body: { boardId: state.niche.board.id, country },
+    });
+    renderNicheWorkspace();
+    toast(`${countryFlag(country)} ${country.toUpperCase()} removed from this board.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function switchTab(tab, scroll = true) {
@@ -421,6 +1163,10 @@ function ratingValue(app) { return app.averageRating ? `★ ${app.averageRating.
 function shortOpportunity(value) { return value.replace(/\s*\([^)]*\)/, ""); }
 function healthIcon(key) { return ({ title: "T", description: "≡", screenshots: "▣", ratings: "★", freshness: "↻", localization: "◎" })[key] || "·"; }
 function initials(value) { return (value || "AS").split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
+function localDateKey(value) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 function formatDate(value) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)) : "—"; }
 function relativeDate(value) {
   const days = Math.max(0, Math.floor((Date.now() - +new Date(value)) / 86400000));
@@ -430,5 +1176,29 @@ function relativeDate(value) {
 }
 function formatCompact(value) { return new Intl.NumberFormat(undefined, { notation: Number(value) >= 1000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value || 0); }
 function formatBytes(value) { if (!value) return "—"; return `${(value / 1024 / 1024).toFixed(0)} MB`; }
+function metricTrend(trend, label, periodDays) {
+  if (!trend) return "";
+  if (periodDays === 30 && trend.baseline === 0) return "";
+  const tone = trend.better === true ? "better" : trend.better === false ? "worse" : "flat";
+  const basis = label === "Tracked"
+    ? `tracked targets created on or before ${periodDays} days ago`
+    : `the latest stored check on or before ${periodDays} days ago`;
+  const title = `${periodDays}-day comparison: ${trend.current} now vs ${trend.baseline} for ${basis}.`;
+  if (trend.percent == null) return periodDays === 7 ? `<span class="metric-trend ${tone}" title="${escapeAttr(title)}">NEW <small>7d</small></span>` : "";
+  const direction = trend.percent > 0 ? "+" : trend.percent < 0 ? "−" : "";
+  return `<span class="metric-trend ${tone}" title="${escapeAttr(title)}">${direction}${Math.abs(trend.percent).toFixed(1)}% <small>${periodDays}d</small></span>`;
+}
+function estimateCell(value, kind, sampleSize) {
+  const shortLabel = kind === "difficulty" ? "Difficulty" : "Volume";
+  if (value == null) return `<span class="estimate unknown" title="Run a new check to calculate this estimate."><span class="estimate-label">${shortLabel}</span><strong>—</strong></span>`;
+  const tier = kind === "difficulty"
+    ? value >= 67 ? "hard" : value >= 34 ? "mid" : "strong"
+    : value >= 35 ? "strong" : value >= 15 ? "mid" : "low";
+  const titleLabel = kind === "difficulty"
+    ? "Estimated competition; higher means harder to enter the top 10."
+    : "Estimated audience from matching-app ratings; not Apple search volume.";
+  const sample = sampleSize ? ` Based on ${sampleSize} rated app result${sampleSize === 1 ? "" : "s"}.` : "";
+  return `<span class="estimate ${tier}" title="${titleLabel}${sample}"><span class="estimate-label">${shortLabel}</span><strong>${value}</strong><span class="estimate-track"><i style="width:${value}%"></i></span></span>`;
+}
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
 function escapeAttr(value) { return escapeHtml(value); }

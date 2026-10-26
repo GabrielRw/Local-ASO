@@ -14,6 +14,7 @@
       <nav class="toolkit" aria-label="Growth toolkit">
         <p class="section-kicker">Growth toolkit</p>
         <button class="nav-item active" data-tab-target="rankings"><span class="nav-icon">↗</span>Rank tracking</button>
+        <button class="nav-item" id="nicheNavButton"><span class="nav-icon niche-icon">⌕</span>Niche research</button>
         <button class="nav-item" data-tab-target="health"><span class="nav-icon">✦</span>Listing health</button>
         <button class="nav-item" data-tab-target="compare"><span class="nav-icon">⇄</span>Competitor view</button>
       </nav>
@@ -31,10 +32,13 @@
 
     <main class="workspace">
       <header class="mobile-header"><button id="menuButton" class="icon-button" aria-label="Open app menu">☰</button><span>Local ASO</span></header>
-      <div class="content-wrap">
+      <div class="content-wrap" id="appContentWrap">
         <section class="app-hero card" id="appHero">
           <div class="skeleton hero-skeleton"></div>
         </section>
+
+        <section class="country-visibility" id="countryVisibility" aria-label="Top 10 keywords by storefront" hidden></section>
+        <div class="sync-indicator" id="syncIndicator" role="status" hidden><span class="sync-pulse"></span><span id="syncIndicatorText">Syncing all storefronts in the background…</span></div>
 
         <div class="tabs-bar">
           <div class="tabs" role="tablist" aria-label="App insights">
@@ -57,10 +61,9 @@
               <div><p class="section-kicker">Search visibility</p><h2>Keyword rankings</h2></div>
               <label class="search-field"><span>⌕</span><input id="keywordFilter" type="search" placeholder="Filter keywords"></label>
             </div>
-            <div class="method-note"><span>Live methodology</span> Rankings use Apple’s public search results for the selected country and device. A missing app is shown as &gt;limit—not an exact rank beyond the returned results.</div>
             <div class="table-scroll">
               <table class="rank-table">
-                <thead><tr><th>Keyword</th><th>Country</th><th>Device</th><th>Rank</th><th>Change</th><th>Signal</th><th>Updated</th><th></th></tr></thead>
+                <thead><tr><th>Keyword</th><th>Country</th><th>Device</th><th>Rank</th><th>Volume</th><th>Difficulty</th><th>Top 5</th><th>Change</th><th>Signal</th><th>Updated</th><th></th></tr></thead>
                 <tbody id="rankingsBody"></tbody>
               </table>
             </div>
@@ -70,9 +73,25 @@
             <div class="history-head"><div><p class="section-kicker">Selected keyword</p><h2 id="historyTitle">Rank history</h2></div><div class="history-legend"><span></span>Higher is better</div></div>
             <div id="historyChart" class="chart-wrap"></div>
           </section>
+          <section class="history-card card overall-rank-card" id="overallRankCard">
+            <div class="history-head">
+              <div><p class="section-kicker">Portfolio view</p><h2>Overall rank trend</h2></div>
+              <div class="overall-current"><span>Latest average</span><strong id="overallAverageRank">—</strong></div>
+            </div>
+            <div id="overallRankChart" class="chart-wrap"></div>
+            <p class="chart-methodology">Daily average rank across found keywords in the selected storefront and device. Missing apps are excluded from the average rather than counted as the result limit.</p>
+          </section>
+          <section class="card losing-card" id="losingCard">
+            <div class="losing-head">
+              <div><p class="section-kicker">Competitive overlap</p><h2>Losing to</h2><p>Apps most often ahead in the Top 5 across <span id="losingMarket">the selected market</span>.</p></div>
+              <span class="losing-count" id="losingCount">0</span>
+            </div>
+            <div class="losing-grid" id="losingGrid"></div>
+          </section>
         </section>
 
         <section class="tab-panel" id="healthPanel" data-panel="health">
+          <section class="card coverage-card" id="coverageCard"></section>
           <div class="health-layout">
             <section class="card health-score-card" id="healthScoreCard"></section>
             <section class="card breakdown-card"><div class="data-head"><div><p class="section-kicker">Transparent heuristic</p><h2>Score breakdown</h2></div></div><div id="healthBreakdown"></div></section>
@@ -94,6 +113,39 @@
           </section>
         </section>
       </div>
+      <section class="niche-workspace" id="nicheWorkspace" hidden>
+        <div class="niche-shell">
+          <header class="niche-header">
+            <div><p class="section-kicker">App-wide keyword research</p><h1>Niche keyword lab</h1><p>Ask a connected local agent for market-specific App Store phrases, then compare them across any number of storefronts.</p></div>
+            <span class="niche-agent-status" id="nicheAgentStatus">Checking agents…</span>
+          </header>
+          <section class="card niche-create-card">
+            <form id="nicheCreateForm">
+              <label class="field"><span>Describe the niche</span><input id="nicheBrief" maxlength="1000" required placeholder="A calorie tracker for people on keto"><small>Natural-language brief only. This board is independent of any tracked app.</small></label>
+              <div class="niche-create-actions"><label class="select-wrap"><span>Agent</span><select id="nicheProvider"><option value="auto">Auto-detect</option><option value="codex">Codex</option><option value="claude">Claude</option></select></label><button type="submit" class="button button-primary" id="nicheBrainstormButton">Brainstorm 10 keywords</button></div>
+            </form>
+          </section>
+          <section class="card niche-empty" id="nicheEmpty">
+            <div class="empty-icon">⌕</div><h2>Start with a niche</h2><p>Describe an audience or product idea. A local AI agent proposes the first 10 search phrases.</p>
+          </section>
+          <div id="nicheContent" hidden>
+            <section class="card niche-toolbar">
+              <label class="select-wrap"><span>Board</span><select id="nicheBoardSelect"></select></label>
+              <div class="niche-toolbar-actions"><label class="select-wrap"><span>Add country</span><select id="nicheCountrySelect"></select></label><button class="button button-ghost" id="nicheAddCountryButton">+ Add</button><button class="button button-primary" id="nicheCheckNowButton">▶ Check now</button></div>
+            </section>
+            <div class="niche-layout">
+              <section class="card niche-board-card">
+                <div class="niche-board-head"><div><p class="section-kicker" id="nicheBoardKicker">Market board</p><h2 id="nicheBoardTitle">Niche keywords</h2><p id="nicheBoardBrief"></p></div><span class="niche-checked" id="nicheChecked">Not checked yet</span></div>
+                <div class="niche-board-scroll" id="nicheBoardScroll"></div>
+              </section>
+              <aside class="card niche-agent-card">
+                <p class="section-kicker">AI agent</p><h2>Expand this board</h2><p>Ask the selected local agent to add more keywords. New phrases are checked across this board’s countries automatically.</p>
+                <form id="nicheAgentForm"><label class="field"><span>Instruction</span><textarea id="nicheAgentInput" rows="3" maxlength="500" placeholder="Add 5 carnivore keywords"></textarea></label><label class="select-wrap niche-agent-provider"><span>Agent</span><select id="nicheAgentProvider"><option value="auto">Auto-detect</option><option value="codex">Codex</option><option value="claude">Claude</option></select></label><button type="submit" class="button button-primary" id="nicheAgentSubmit">Ask agent</button></form>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -103,8 +155,9 @@
       <ol class="onboarding-progress" aria-label="Setup progress">
         <li data-setup-progress="0"><span>1</span>Your app</li>
         <li data-setup-progress="1"><span>2</span>Start tracking</li>
+        <li data-setup-progress="2"><span>3</span>Research agent</li>
       </ol>
-      <div class="onboarding-heading"><p class="section-kicker" id="onboardingStepLabel">Step 1 of 2</p><h2 id="onboardingTitle" tabindex="-1">A little setup. A clearer view.</h2><p id="onboardingIntro">Choose your app and storefront. Your workspace stays on this computer.</p></div>
+      <div class="onboarding-heading"><p class="section-kicker" id="onboardingStepLabel">Step 1 of 3</p><h2 id="onboardingTitle" tabindex="-1">A little setup. A clearer view.</h2><p id="onboardingIntro">Choose your app and storefront. Your workspace stays on this computer.</p></div>
 
       <section data-setup-step="0">
         <div class="onboarding-tip"><span aria-hidden="true">↗</span><p><strong>No account or API keys needed.</strong> Track rankings using Apple’s public App Store search results. Your data stays in your local workspace.</p></div>
@@ -120,18 +173,28 @@
         <p class="setup-next" id="onboardingNextTip"></p>
       </section>
 
+      <section data-setup-step="2" hidden>
+        <div class="onboarding-tip"><span aria-hidden="true">⌕</span><p><strong>Choose the local agent for Niche research.</strong> Auto-detect uses Codex first, then Claude. This selection is optional and can be changed later.</p></div>
+        <div class="agent-choice-grid" id="onboardingAgentChoices" role="radiogroup" aria-label="Local keyword research agent"></div>
+      </section>
+
       <p class="setup-error" id="onboardingError" role="alert" hidden></p>
       <div class="onboarding-actions"><button type="button" class="button button-ghost" id="onboardingBack" hidden>Back</button><button type="submit" class="button button-primary" id="onboardingNext">Continue</button></div>
     </form>
   </dialog>
 
-  <dialog class="modal" id="keywordModal">
+  <dialog class="modal keyword-modal" id="keywordModal">
     <form method="dialog" id="keywordForm">
       <div class="modal-head"><div><p class="section-kicker">New tracking target</p><h2>Add keyword</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
       <label class="field"><span>Keywords</span><textarea id="keywordInput" required rows="4" placeholder="learn astrology, birth chart, astrology course" autocomplete="off"></textarea><small>Separate keywords with commas or new lines. Duplicates are ignored.</small></label>
-      <fieldset class="country-fieldset"><legend>Track in storefronts</legend><div id="countryChecks" class="country-checks"></div></fieldset>
+      <div class="localize-bar">
+        <div><strong>Search in local language</strong><small>Curated EN / FR / ES suggestions for each selected market.</small></div>
+        <button type="button" class="button button-ghost" id="localizeKeywordsButton">✦ Localize selected</button>
+      </div>
+      <div class="localization-preview" id="localizationPreview" hidden aria-live="polite"></div>
+      <fieldset class="country-fieldset"><legend class="field-legend">Track in storefronts <button type="button" class="text-button" id="selectAllCountries">Select all</button></legend><div id="countryChecks" class="country-checks"></div></fieldset>
       <fieldset class="country-fieldset"><legend>Track on devices</legend><div id="deviceChecks" class="country-checks device-checks"><label class="country-check"><input type="checkbox" name="device" value="iphone" checked><span>▯ <strong>iPhone</strong></span></label><label class="country-check"><input type="checkbox" name="device" value="ipad"><span>▭ <strong>iPad</strong></span></label></div></fieldset>
-      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="submit" value="default" class="button button-primary">Add keywords</button></div>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="submit" value="default" class="button button-primary" id="keywordSubmit">Add keywords</button></div>
     </form>
   </dialog>
 
@@ -154,7 +217,26 @@
     </div>
   </dialog>
 
+  <dialog class="modal confirm-modal" id="deleteAppModal">
+    <div class="confirm-content">
+      <div class="empty-icon">×</div>
+      <h2>Remove this app?</h2>
+      <p id="deleteAppMessage">The app will be hidden from this workspace. Its ranking targets and history will remain recoverable in the local database.</p>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="button" class="button button-danger" id="confirmDeleteApp">Remove app</button></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal metric-history-modal" id="metricHistoryModal" aria-labelledby="metricHistoryTitle">
+    <div class="metric-history-content">
+      <div class="modal-head"><div><p class="section-kicker">Visibility evolution</p><h2 id="metricHistoryTitle">Rank history</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
+      <div class="metric-history-summary"><strong id="metricHistoryLatest">—</strong><span id="metricHistoryCaption">keywords</span><small id="metricHistoryPeriod"></small></div>
+      <div id="metricHistoryChart" class="chart-wrap"></div>
+      <p class="chart-methodology" id="metricHistoryMethodology"></p>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="app-tooltip" id="appTooltip" role="tooltip" hidden></div>
   <div class="busy" id="busy" hidden><span></span><p>Working locally…</p></div>
   <script src="/app.js" defer></script>
   <script src="/onboarding.js" defer></script>

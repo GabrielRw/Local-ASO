@@ -18,6 +18,17 @@ const state = {
   nicheView: false,
   syncPollTimer: null,
   syncWasRunning: false,
+  appleAds: null,
+  appleAdsLoaded: false,
+  appleAdsLoading: false,
+  appleAdsShowPaused: false,
+  appleAdsCountryFilter: "all",
+  appleAdsSortField: "keyword",
+  appleAdsSortDirection: "asc",
+  competitorMatrix: null,
+  competitorMatrixLoaded: false,
+  competitorMatrixLoading: false,
+  pendingTopApp: null,
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -52,6 +63,8 @@ function bindEvents() {
     renderCountryVisibility();
     renderRankings();
     renderListingCoverage();
+    if (state.tab === "paid") loadAppleAds();
+    if (state.tab === "compare") loadCompetitorMatrix();
   });
   el("#keywordFilter").addEventListener("input", (event) => {
     state.filter = event.target.value.trim().toLowerCase();
@@ -77,13 +90,27 @@ function bindEvents() {
   el("#rankingsBody").addEventListener("pointerout", hideTopAppTooltip);
   el("#rankingsBody").addEventListener("focusin", showTopAppTooltip);
   el("#rankingsBody").addEventListener("focusout", hideTopAppTooltip);
+  el("#competitorMatrix").addEventListener("click", competitorMatrixAction);
+  el("#topAppMenuClose").addEventListener("click", hideTopAppMenu);
+  el("#addTopAppCompetitor").addEventListener("click", addPendingTopAppCompetitor);
   el("#countryVisibility").addEventListener("click", countryVisibilityClick);
+  el("#appleAdsContent").addEventListener("click", appleAdsAction);
+  el("#appleAdsContent").addEventListener("change", appleAdsChange);
   window.addEventListener("resize", hideTopAppTooltip);
   window.addEventListener("scroll", hideTopAppTooltip, true);
+  document.addEventListener("pointerdown", (event) => {
+    if (!el("#topAppMenu").hidden && !event.target.closest("#topAppMenu") && !event.target.closest(".top-app-preview")) hideTopAppMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideTopAppMenu();
+  });
   all("[data-tab], [data-tab-target]").forEach((button) => {
     button.addEventListener("click", () => {
       closeNicheWorkspace();
-      switchTab(button.dataset.tab || button.dataset.tabTarget);
+      const target = button.dataset.tab || button.dataset.tabTarget;
+      switchTab(target);
+      if (target === "paid") loadAppleAds();
+      if (target === "compare") loadCompetitorMatrix();
     });
   });
   el("#nicheNavButton").addEventListener("click", openNicheWorkspace);
@@ -133,6 +160,8 @@ function renderAll() {
   renderHealth();
   renderCompetitorPicker();
   switchTab(state.tab, false);
+  if (state.tab === "paid" && state.appId) loadAppleAds();
+  if (state.tab === "compare" && state.appId) loadCompetitorMatrix();
 }
 
 function monitorAutomaticSync() {
@@ -187,6 +216,10 @@ function renderSidebar() {
     resetCoverage();
     el("#keywordFilter").value = "";
     el("#sidebar").classList.remove("open");
+    state.appleAds = null;
+    state.appleAdsLoaded = false;
+    state.competitorMatrix = null;
+    state.competitorMatrixLoaded = false;
     loadDashboard();
   }));
 }
@@ -443,7 +476,7 @@ function topAppsCell(apps = []) {
     const image = app.artworkUrl
       ? `<img src="${escapeAttr(app.artworkUrl)}" alt="" loading="lazy">`
       : "";
-    return `<span class="top-app-preview" tabindex="0" role="img" aria-label="Top result ${app.position}: ${escapeAttr(app.name)}" data-app-name="${escapeAttr(app.name)}"><span class="top-app-avatar">${fallback}${image}</span></span>`;
+    return `<button type="button" class="top-app-preview" aria-label="Top result ${app.position}: ${escapeAttr(app.name)}. Open competitor actions." data-app-id="${app.appId}" data-app-name="${escapeAttr(app.name)}" data-artwork-url="${escapeAttr(app.artworkUrl || "")}"><span class="top-app-avatar">${fallback}${image}</span></button>`;
   }).join("");
   return `<span class="top-app-stack"><span class="top-apps-label">Top 5</span>${icons}</span>`;
 }
@@ -472,6 +505,65 @@ function hideTopAppTooltip(event) {
   el("#appTooltip").hidden = true;
 }
 
+function openTopAppMenu(preview) {
+  hideTopAppTooltip();
+  const appId = Number(preview.dataset.appId);
+  const name = preview.dataset.appName;
+  const artworkUrl = preview.dataset.artworkUrl;
+  state.pendingTopApp = { appleAppId: appId, name, artworkUrl };
+  el("#topAppMenuName").textContent = name;
+  el("#topAppMenuArtwork").innerHTML = artworkUrl
+    ? `<img src="${escapeAttr(artworkUrl)}" alt="">`
+    : escapeHtml(initials(name));
+  const addButton = el("#addTopAppCompetitor");
+  const isPrimary = appId === state.appId;
+  addButton.disabled = isPrimary;
+  addButton.textContent = isPrimary ? "Current primary app" : "+ Add to competitors";
+  const menu = el("#topAppMenu");
+  menu.hidden = false;
+  const rect = preview.getBoundingClientRect();
+  const width = menu.offsetWidth;
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left + rect.width / 2 - width / 2));
+  const below = rect.bottom + 8;
+  const top = below + menu.offsetHeight <= window.innerHeight - 8
+    ? below
+    : Math.max(8, rect.top - menu.offsetHeight - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function hideTopAppMenu() {
+  el("#topAppMenu").hidden = true;
+  state.pendingTopApp = null;
+}
+
+async function addPendingTopAppCompetitor() {
+  const competitor = state.pendingTopApp;
+  if (!competitor || !state.appId) return;
+  hideTopAppMenu();
+  setBusy(true);
+  try {
+    await request("/api/competitors/add", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        competitorAppId: competitor.appleAppId,
+        name: competitor.name,
+        artworkUrl: competitor.artworkUrl || null,
+      },
+    });
+    state.tab = "compare";
+    state.competitorMatrixLoaded = false;
+    switchTab("compare", false);
+    await loadCompetitorMatrix();
+    toast(`${competitor.name} added to the competitor matrix. Use Refresh rankings to load its positions.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function rankingClick(event) {
   const remove = event.target.closest("[data-delete-target]");
   if (remove) {
@@ -480,7 +572,12 @@ async function rankingClick(event) {
     el("#confirmModal").showModal();
     return;
   }
-  if (event.target.closest(".top-app-preview")) return;
+  const topApp = event.target.closest(".top-app-preview");
+  if (topApp) {
+    event.stopPropagation();
+    openTopAppMenu(topApp);
+    return;
+  }
   const row = event.target.closest("tr[data-target-id]");
   if (!row) return;
   state.selectedTarget = Number(row.dataset.targetId);
@@ -810,6 +907,108 @@ function renderScreenshots() {
   el("#screenshotGallery").innerHTML = `<div class="screenshot-unavailable"><div class="empty-icon">▣</div><div><h3>Screenshot data is not publicly exposed</h3><p>Apple's public iTunes API returned no screenshot URLs. This does <strong>not</strong> mean the listing has no screenshots, and it is not scored as zero.</p></div>${listingLink}</div>`;
 }
 
+async function loadCompetitorMatrix() {
+  if (!state.appId || state.competitorMatrixLoading) return;
+  state.competitorMatrixLoading = true;
+  if (!state.competitorMatrixLoaded) {
+    el("#competitorMatrix").innerHTML = `<div class="paid-search-empty"><div class="empty-icon">⇄</div><h2>Competitor matrix</h2><p>Loading keyword rankings…</p></div>`;
+  }
+  try {
+    const query = new URLSearchParams({
+      appId: String(state.appId),
+      country: state.country,
+      device: state.device,
+    });
+    state.competitorMatrix = await request(`/api/competitors?${query}`);
+    state.competitorMatrixLoaded = true;
+    renderCompetitorMatrix();
+  } catch (error) {
+    el("#competitorMatrix").innerHTML = `<div class="paid-search-empty"><div class="empty-icon">!</div><h2>Competitor matrix unavailable</h2><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    state.competitorMatrixLoading = false;
+  }
+}
+
+function renderCompetitorMatrix() {
+  const data = state.competitorMatrix;
+  if (!data) return;
+  const apps = data.apps || [];
+  const keywords = data.keywords || [];
+  const lastChecked = data.lastCheckedAt ? `Checked ${formatDate(data.lastCheckedAt)}` : "Not checked yet";
+  el("#competitorMatrix").innerHTML = `
+    <div class="competitor-matrix-head">
+      <div><p class="section-kicker">Keyword competitor matrix</p><h2>${escapeHtml(data.app.name)} vs competitors</h2><p>${countryFlag(state.country)} ${escapeHtml(state.country.toUpperCase())} · ${deviceName(state.device)} · ${keywords.length} tracked keywords</p></div>
+      <div class="competitor-matrix-actions"><span class="availability-badge">${lastChecked}</span><button type="button" class="button button-primary" data-competitor-action="refresh" ${data.competitorCount ? "" : "disabled"}>↻ Refresh rankings</button></div>
+    </div>
+    <div class="competitor-matrix-hint">Click any app icon in the Top 5 rows under Keywords to add it here.</div>
+    <div class="competitor-matrix-scroll"><table class="competitor-matrix-table"><thead><tr><th class="matrix-keyword-head">Keyword</th>${apps.map(competitorAppHeader).join("")}</tr></thead><tbody>${keywords.map((row) => competitorKeywordRow(row, apps)).join("") || `<tr><td colspan="${Math.max(1, apps.length + 1)}">No tracked keywords for this storefront and device.</td></tr>`}</tbody></table></div>`;
+}
+
+function competitorAppHeader(app) {
+  const icon = app.artworkUrl
+    ? `<img src="${escapeAttr(app.artworkUrl)}" alt="">`
+    : escapeHtml(initials(app.name));
+  const remove = app.isPrimary
+    ? `<small>Primary app</small>`
+    : `<button type="button" class="competitor-remove" data-competitor-action="remove" data-competitor-app-id="${app.appleAppId}" title="Remove from competitor view" aria-label="Remove ${escapeAttr(app.name)} from competitor view">×</button>`;
+  return `<th class="matrix-app-head ${app.isPrimary ? "primary" : ""}"><div class="matrix-app-avatar">${icon}</div><strong title="${escapeAttr(app.name)}">${escapeHtml(app.name)}</strong>${remove}</th>`;
+}
+
+function competitorKeywordRow(row, apps) {
+  return `<tr><th scope="row" class="matrix-keyword">${escapeHtml(row.keyword)}</th>${(row.cells || []).map((cell) => matrixRankCell(cell, apps)).join("")}</tr>`;
+}
+
+function matrixRankCell(cell, apps) {
+  const app = apps.find((item) => item.appleAppId === cell.appleAppId);
+  const appName = app?.name || `App ${cell.appleAppId}`;
+  if (cell.status === "pending") {
+    return `<td class="matrix-rank pending" title="${escapeAttr(appName)} has not been checked for this keyword">—</td>`;
+  }
+  if (cell.status === "error") {
+    return `<td class="matrix-rank error" title="${escapeAttr(cell.error || `${appName} check failed`)}">!</td>`;
+  }
+  if (cell.found && cell.rank != null) {
+    const tone = cell.rank <= 10 ? "top" : cell.rank <= 50 ? "middle" : "low";
+    return `<td class="matrix-rank ${tone}" title="${escapeAttr(appName)} rank #${cell.rank}">#${cell.rank}</td>`;
+  }
+  return `<td class="matrix-rank absent" title="${escapeAttr(appName)} is outside the retrieved top ${cell.resultLimit}">>${cell.resultLimit}</td>`;
+}
+
+async function competitorMatrixAction(event) {
+  const button = event.target.closest("[data-competitor-action]");
+  if (!button || !state.appId) return;
+  const action = button.dataset.competitorAction;
+  setBusy(true);
+  try {
+    if (action === "refresh") {
+      const result = await request("/api/competitors/refresh", {
+        method: "POST",
+        body: { appId: state.appId, country: state.country, device: state.device },
+      });
+      state.competitorMatrix = result;
+      state.competitorMatrixLoaded = true;
+      renderCompetitorMatrix();
+      const failures = result.refresh?.failures || 0;
+      toast(
+        `Competitor rankings refreshed: ${result.refresh?.searches || 0} searches${failures ? `, ${failures} failed` : ""}.`,
+        failures > 0,
+      );
+    } else if (action === "remove") {
+      await request("/api/competitors/remove", {
+        method: "POST",
+        body: { competitorAppId: Number(button.dataset.competitorAppId) },
+      });
+      state.competitorMatrixLoaded = false;
+      await loadCompetitorMatrix();
+      toast("Competitor removed from the matrix.");
+    }
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function renderCompetitorPicker() {
   const apps = (state.data.apps || []).filter((app) => app.appleAppId !== state.appId && app.active);
   el("#competitorSelect").innerHTML = apps.length ? apps.map((app) => `<option value="${app.appleAppId}">${escapeHtml(app.name)} · ${app.appleAppId}</option>`).join("") : `<option value="">Add another app first</option>`;
@@ -1124,6 +1323,335 @@ async function removeNicheCountry(country) {
   }
 }
 
+async function loadAppleAds() {
+  if (!state.appId || state.appleAdsLoading) return;
+  state.appleAdsLoading = true;
+  if (!state.appleAdsLoaded) {
+    el("#appleAdsContent").innerHTML = `<div class="card paid-search-empty"><div class="empty-icon">◎</div><h2>Apple Ads</h2><p>Loading read-only campaign data…</p></div>`;
+  }
+  try {
+    const query = new URLSearchParams({
+      appId: String(state.appId),
+      country: state.country,
+      device: state.device,
+    });
+    state.appleAds = await request(`/api/apple-ads?${query}`);
+    state.appleAdsLoaded = true;
+    renderAppleAds();
+  } catch (error) {
+    el("#appleAdsContent").innerHTML = `<div class="card paid-search-empty"><div class="empty-icon">!</div><h2>Apple Ads unavailable</h2><p>${escapeHtml(error.message)}</p></div>`;
+  } finally {
+    state.appleAdsLoading = false;
+  }
+}
+
+function renderAppleAds() {
+  const data = state.appleAds;
+  if (!data) return;
+  const credentials = data.credentials || {};
+  if (!credentials.available) {
+    el("#appleAdsContent").innerHTML = `<section class="card paid-setup-card">
+      <p class="section-kicker">Read-only Apple Ads</p>
+      <h2>Connect your local API credential</h2>
+      <p>Place the signed <code>client-secret.jwt</code> at the path below. The app never displays, logs, exports, or commits its contents.</p>
+      <div class="paid-credential-path">${escapeHtml(credentials.path || "Unavailable")}</div>
+      <p class="paid-setup-error">${escapeHtml(credentials.reason || "The Apple Ads client secret is unavailable.")}</p>
+      <button type="button" class="button button-primary" data-paid-action="discover">Check connection</button>
+    </section>`;
+    return;
+  }
+  const accounts = data.accounts || [];
+  if (!accounts.length) {
+    el("#appleAdsContent").innerHTML = `<section class="card paid-setup-card">
+      <p class="section-kicker">Read-only Apple Ads</p>
+      <h2>Discover your ad account</h2>
+      <p>The local credential is valid. Discover the ad accounts it can access, then choose the one managing this app.</p>
+      <button type="button" class="button button-primary" data-paid-action="discover">Discover accounts</button>
+    </section>`;
+    return;
+  }
+  const selected = accounts.find((account) => account.id === data.selectedAccountId);
+  if (!selected) {
+    el("#appleAdsContent").innerHTML = `<section class="card paid-setup-card">
+      <p class="section-kicker">Read-only Apple Ads</p>
+      <h2>Choose the ad account</h2>
+      <p>Apple Ads credentials can access more than one ad account. Select the account containing the campaigns for this app.</p>
+      <div class="apple-ads-account-grid">${accounts.map((account) => `<button type="button" class="apple-ads-account" data-paid-action="select-account" data-ad-account="${account.id}"><span>${escapeHtml(account.name)}</span><strong>${account.id}</strong><small>${escapeHtml((account.roles || []).join(" · ") || "No role reported")}</small></button>`).join("")}</div>
+    </section>`;
+    return;
+  }
+
+  const summary = data.summary || {};
+  const allMarketsSummary = data.allMarketsSummary || {};
+  const window = data.window || {};
+  const campaigns = data.campaigns || [];
+  const keywordCountries = data.keywordCountries || [];
+  const countryCodes = new Set(keywordCountries.map((group) => group.code));
+  if (state.appleAdsCountryFilter !== "all" && !countryCodes.has(state.appleAdsCountryFilter)) {
+    state.appleAdsCountryFilter = "all";
+  }
+  const statusFilteredCountries = keywordCountries
+    .map((group) => ({
+      ...group,
+      keywords: (group.keywords || []).filter((row) => state.appleAdsShowPaused || row.status === "ENABLED"),
+    }));
+  const visibleKeywordCountries = statusFilteredCountries
+    .filter((group) => state.appleAdsCountryFilter === "all" || group.code === state.appleAdsCountryFilter)
+    .filter((group) => group.keywords.length)
+    .map((group) => ({
+      ...group,
+      keywords: sortPaidKeywordRows(group.keywords),
+    }));
+  const suggestions = data.suggestions || [];
+  const sync = data.sync;
+  el("#appleAdsContent").innerHTML = `
+    <section class="paid-hero card">
+      <div><p class="section-kicker">Read-only paid search</p><h2>Apple Ads performance</h2><p>${escapeHtml(selected.name)} · ${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)} · ${window.days || 30} completed days</p></div>
+      <div class="paid-hero-actions"><label class="select-wrap paid-account-select"><span>Ad account</span><select data-paid-account-select aria-label="Apple Ads account">${accounts.map((account) => `<option value="${account.id}" ${account.id === selected.id ? "selected" : ""}>${escapeHtml(account.name)} · ${account.id}</option>`).join("")}</select></label><span class="availability-badge">${selected.lastSyncedAt ? `Synced ${formatDate(selected.lastSyncedAt)}` : "Not synced yet"}</span><button type="button" class="button button-primary" data-paid-action="sync">↻ Sync Apple Ads</button></div>
+    </section>
+    ${sync ? `<div class="paid-sync-note">Imported ${sync.campaigns} campaigns, ${sync.keywords} keywords, ${sync.metricRows} daily metric rows, and ${sync.suggestions} suggestions.</div>` : ""}
+    <section class="paid-summary-grid">
+      ${paidMetricCard("All-market spend", formatPaidMoney(allMarketsSummary.spend, allMarketsSummary.currency), `${formatCompact(allMarketsSummary.impressions)} impressions · ${formatCompact(allMarketsSummary.taps)} taps`)}
+      ${paidMetricCard("Selected-market spend", formatPaidMoney(summary.spend, summary.currency), `${state.country.toUpperCase()} · ${deviceName(state.device)}`)}
+      ${paidMetricCard("Selected-market taps", formatCompact(summary.taps), `${formatCompact(summary.impressions)} impressions`)}
+      ${paidMetricCard("Selected-market installs", formatCompact(summary.tapInstalls), `${formatCompact(summary.totalInstalls)} total installs`)}
+      ${paidMetricCard("Cost per tap", formatPaidMoney(summary.cpt, summary.currency), "Apple-reported spend ÷ taps")}
+    </section>
+    <section class="card paid-table-card">
+      <div class="data-head"><div><p class="section-kicker">Campaign overview</p><h2>Campaigns promoting this app</h2></div><span class="availability-badge">${campaigns.filter((item) => item.status === "ENABLED" && !item.deleted).length} enabled</span></div>
+      <div class="table-scroll"><table class="paid-table"><thead><tr><th>Campaign</th><th>Status</th><th>Keywords</th><th>Spend</th><th>Impressions</th><th>Taps</th><th>Installs</th></tr></thead><tbody>${campaigns.map(appleAdsCampaignRow).join("") || `<tr><td colspan="7">No campaigns found for this app.</td></tr>`}</tbody></table></div>
+    </section>
+    <section class="card paid-table-card">
+      <div class="data-head"><div><p class="section-kicker">Current targeting</p><h2>Apple Ads keywords by country</h2><p>Filter by market and sort each country group by any keyword metric. The selected storefront is shown first.</p></div><div class="paid-table-tools"><label class="paid-toggle"><input type="checkbox" data-paid-show-paused ${state.appleAdsShowPaused ? "checked" : ""}><span>Show paused</span></label><span class="availability-badge">${visibleKeywordCountries.reduce((count, group) => count + group.keywords.length, 0)} visible rows</span></div></div>
+      <div class="paid-country-tabs">${paidCountryFilterButton("all", "All", statusFilteredCountries.reduce((count, group) => count + group.keywords.length, 0))}${statusFilteredCountries.map((group) => paidCountryFilterButton(group.code, group.name, group.keywords.length)).join("")}</div>
+      <div class="table-scroll"><table class="paid-table paid-keyword-table"><thead><tr>${paidSortHeader("Keyword", "keyword")}${paidSortHeader("Match types", "matchTypes")}${paidSortHeader("Status", "status")}${paidSortHeader("Campaigns", "campaignCount")}${paidSortHeader("ASO rank", "asoRank")}${paidSortHeader("Bid", "bid")}${paidSortHeader("Spend", "spend")}${paidSortHeader("Impr.", "impressions")}${paidSortHeader("Taps", "taps")}${paidSortHeader("Installs", "installs")}</tr></thead><tbody>${visibleKeywordCountries.map(appleAdsCountryGroup).join("") || `<tr><td colspan="10">No enabled targeting keywords have been synced. Turn on Show paused or choose another country.</td></tr>`}</tbody></table></div>
+    </section>
+    <section class="card paid-suggestions-card">
+      <div class="data-head"><div><p class="section-kicker">Apple suggestions</p><h2>Related keywords to target</h2><p>Seeded by the highest-ranking ASO keywords for ${countryFlag(state.country)} ${state.country.toUpperCase()}. Scores are Apple’s relative suggestion popularity, not search volume.</p></div><span class="availability-badge">${suggestions.length} suggestions</span></div>
+      <div class="paid-suggestion-grid">${suggestions.slice(0, 30).map(appleAdsSuggestionCard).join("") || `<div class="paid-search-empty"><p>No suggestions have been synced for this market.</p></div>`}</div>
+    </section>`;
+}
+
+function paidMetricCard(label, value, note) {
+  return `<article class="card paid-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></article>`;
+}
+
+function paidCountryFilterButton(code, name, count) {
+  const active = state.appleAdsCountryFilter === code;
+  return `<button type="button" class="paid-country-filter ${active ? "active" : ""}" data-paid-action="filter-country" data-country-filter="${escapeAttr(code)}"><span>${code === "all" ? "All" : `${countryFlag(code)} ${escapeHtml(name)}`}</span><small>${count}</small></button>`;
+}
+
+function paidSortHeader(label, field) {
+  const active = state.appleAdsSortField === field;
+  const direction = active ? state.appleAdsSortDirection : null;
+  return `<th aria-sort="${active ? (direction === "asc" ? "ascending" : "descending") : "none"}"><button type="button" class="paid-sort-button ${active ? "active" : ""}" data-paid-action="sort" data-paid-sort="${field}">${escapeHtml(label)}<span>${active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span></button></th>`;
+}
+
+function sortPaidKeywordRows(rows) {
+  const field = state.appleAdsSortField;
+  const direction = state.appleAdsSortDirection === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const leftValue = paidSortValue(left, field);
+    const rightValue = paidSortValue(right, field);
+    if (leftValue == null && rightValue == null) return String(left.text).localeCompare(String(right.text));
+    if (leftValue == null) return 1;
+    if (rightValue == null) return -1;
+    const comparison = typeof leftValue === "number" && typeof rightValue === "number"
+      ? leftValue - rightValue
+      : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
+    return comparison ? comparison * direction : String(left.text).localeCompare(String(right.text));
+  });
+}
+
+function paidSortValue(row, field) {
+  const metrics = row.metrics || {};
+  if (field === "keyword") return row.text;
+  if (field === "matchTypes") return (row.matchTypes || []).join(", ");
+  if (field === "status") return row.status;
+  if (field === "campaignCount") return Number(row.campaignCount || 0);
+  if (field === "asoRank") return row.asoFound && row.asoRank != null
+    ? Number(row.asoRank)
+    : row.asoChecked ? Number(row.asoLimit) + 1 : null;
+  if (field === "bid") return row.bidMin == null ? null : Number(row.bidMin);
+  if (field === "spend") return Number(metrics.spend || 0);
+  if (field === "impressions") return Number(metrics.impressions || 0);
+  if (field === "taps") return Number(metrics.taps || 0);
+  if (field === "installs") return Number(metrics.tapInstalls || 0);
+  return row.text;
+}
+
+function appleAdsCampaignRow(campaign) {
+  const summary = campaign.summary || {};
+  return `<tr><td><strong>${escapeHtml(campaign.name)}</strong></td><td><span class="paid-status ${campaign.status === "ENABLED" ? "enabled" : "paused"}">${escapeHtml(campaign.status)}</span></td><td>${campaign.enabledKeywordCount}/${campaign.keywordCount}</td><td>${escapeHtml(formatPaidMoney(summary.spend, summary.currency))}</td><td>${formatCompact(summary.impressions)}</td><td>${formatCompact(summary.taps)}</td><td>${formatCompact(summary.tapInstalls)}</td></tr>`;
+}
+
+function appleAdsCountryGroup(group) {
+  const summary = paidRowsSummary(group.keywords || []);
+  return `<tr class="paid-country-group ${group.code === state.country.toUpperCase() ? "selected" : ""}"><td colspan="10"><span>${countryFlag(group.code)} <strong>${escapeHtml(group.name)}</strong></span><small>${escapeHtml(formatPaidMoney(summary.spend, summary.currency))} spend · ${formatCompact(summary.taps)} taps</small></td></tr>${(group.keywords || []).map(appleAdsKeywordRow).join("")}`;
+}
+
+function paidRowsSummary(rows) {
+  const spend = rows.reduce((total, row) => total + Number(row.metrics?.spend || 0), 0);
+  const currencies = [...new Set(rows.map((row) => row.metrics?.currency).filter(Boolean))];
+  return {
+    spend,
+    currency: currencies.length === 1 ? currencies[0] : null,
+    impressions: rows.reduce((total, row) => total + Number(row.metrics?.impressions || 0), 0),
+    taps: rows.reduce((total, row) => total + Number(row.metrics?.taps || 0), 0),
+    tapInstalls: rows.reduce((total, row) => total + Number(row.metrics?.tapInstalls || 0), 0),
+  };
+}
+
+function appleAdsKeywordRow(row) {
+  const metrics = row.metrics || {};
+  const bid = row.bidMin === row.bidMax
+    ? formatPaidMoney(row.bidMin, row.currency)
+    : `${formatPaidMoney(row.bidMin, row.currency)}–${formatPaidMoney(row.bidMax, row.currency)}`;
+  const rankLabel = row.asoFound && row.asoRank
+    ? `#${row.asoRank}`
+    : row.asoChecked
+      ? `>${row.asoLimit}`
+      : row.asoError ? "!" : "⌕";
+  const rankTone = row.asoFound
+    ? "found"
+    : row.asoChecked
+      ? "not-found"
+      : row.asoError ? "error" : "missing";
+  const rankTitle = row.asoFound && row.asoRank
+    ? `Search again for the ${row.countryName} App Store rank`
+    : row.asoChecked
+      ? `Not found in Apple’s top ${row.asoLimit}; click to search again`
+      : row.asoError
+        ? "The last App Store check failed; click to retry"
+        : `Search ${row.countryName} App Store ranking for “${row.text}”`;
+  return `<tr><td><strong>${escapeHtml(row.text)}</strong></td><td>${(row.matchTypes || []).map((value) => `<span class="paid-match">${escapeHtml(value)}</span>`).join(" ")}</td><td><span class="paid-status ${row.status === "ENABLED" ? "enabled" : "paused"}">${escapeHtml(row.status)}</span></td><td title="${escapeAttr((row.campaigns || []).join(", "))}">${row.campaignCount}</td><td><button type="button" class="paid-aso-rank ${rankTone}" data-paid-action="check-aso-rank" data-keyword="${escapeAttr(row.text)}" data-country="${escapeAttr(row.country)}" data-country-name="${escapeAttr(row.countryName)}" title="${escapeAttr(rankTitle)}" aria-label="${escapeAttr(rankTitle)}">${rankLabel}</button></td><td>${escapeHtml(bid)}</td><td>${escapeHtml(formatPaidMoney(metrics.spend, metrics.currency))}</td><td>${formatCompact(metrics.impressions)}</td><td>${formatCompact(metrics.taps)}</td><td>${formatCompact(metrics.tapInstalls)}</td></tr>`;
+}
+
+function appleAdsSuggestionCard(suggestion) {
+  const status = suggestion.inAsoTracker ? "Tracked in ASO" : suggestion.inAppleAds ? "Already targeted" : "New opportunity";
+  const disabled = suggestion.inAsoTracker ? "disabled" : "";
+  return `<article class="paid-suggestion"><div><strong>${escapeHtml(suggestion.text)}</strong><span class="paid-popularity">${suggestion.popularity ?? "—"}</span></div><small>${status}</small><button type="button" class="text-button" data-paid-action="track-keyword" data-keyword="${escapeAttr(suggestion.text)}" ${disabled}>${suggestion.inAsoTracker ? "Tracked" : "Track in ASO"}</button></article>`;
+}
+
+async function appleAdsAction(event) {
+  const button = event.target.closest("[data-paid-action]");
+  if (!button) return;
+  const action = button.dataset.paidAction;
+  if (action === "filter-country") {
+    state.appleAdsCountryFilter = button.dataset.countryFilter || "all";
+    renderAppleAds();
+  } else if (action === "sort") {
+    const field = button.dataset.paidSort;
+    if (state.appleAdsSortField === field) {
+      state.appleAdsSortDirection = state.appleAdsSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      state.appleAdsSortField = field;
+      state.appleAdsSortDirection = ["keyword", "matchTypes", "status", "asoRank"].includes(field) ? "asc" : "desc";
+    }
+    renderAppleAds();
+  } else if (action === "check-aso-rank") {
+    await checkPaidKeywordRank(button);
+  } else if (action === "discover") {
+    setBusy(true);
+    try {
+      await request("/api/apple-ads/discover", { method: "POST", body: {} });
+      toast("Apple Ads accounts discovered.");
+      await loadAppleAds();
+    } catch (error) { toast(error.message, true); }
+    finally { setBusy(false); }
+  } else if (action === "select-account") {
+    await selectAppleAdsAccount(Number(button.dataset.adAccount));
+  } else if (action === "sync") {
+    await syncAppleAds();
+  } else if (action === "track-keyword") {
+    const keyword = button.dataset.keyword;
+    if (!keyword || !state.appId) return;
+    setBusy(true);
+    try {
+      await request("/api/keywords", { method: "POST", body: { appId: state.appId, keywords: keyword, countries: [state.country], devices: [state.device] } });
+      await loadDashboard({ quiet: true });
+      await loadAppleAds();
+      toast(`“${keyword}” added to ASO tracking.`);
+    } catch (error) { toast(error.message, true); }
+    finally { setBusy(false); }
+  }
+}
+
+async function checkPaidKeywordRank(button) {
+  if (!state.appId) return;
+  setBusy(true);
+  try {
+    const result = await request("/api/keywords/check-rank", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        keyword: button.dataset.keyword,
+        country: button.dataset.country,
+        countryName: button.dataset.countryName,
+        device: state.device,
+      },
+    });
+    await loadAppleAds();
+    const failures = result.automaticCheck?.failures || 0;
+    const rankCheck = result.rankCheck;
+    const rankResult = rankCheck?.status === "error"
+      ? "the Apple request failed"
+      : rankCheck?.found && rankCheck?.rank
+        ? `rank #${rankCheck.rank}`
+        : rankCheck
+          ? `not found in Apple’s top ${rankCheck.resultLimit}`
+          : "no ranking result";
+    toast(
+      failures
+        ? `Rank search for “${result.keyword}” completed with ${failures} failed Apple request${failures === 1 ? "" : "s"}.`
+        : `Rank search for “${result.keyword}” in ${result.country.toUpperCase()}: ${rankResult}.`,
+      failures > 0,
+    );
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function appleAdsChange(event) {
+  if (event.target.matches("[data-paid-show-paused]")) {
+    state.appleAdsShowPaused = event.target.checked;
+    renderAppleAds();
+    return;
+  }
+  if (!event.target.matches("[data-paid-account-select]")) return;
+  await selectAppleAdsAccount(Number(event.target.value));
+}
+
+async function selectAppleAdsAccount(adAccountId) {
+  setBusy(true);
+  try {
+    await request("/api/apple-ads/account", { method: "POST", body: { adAccountId } });
+    await loadAppleAds();
+    await syncAppleAds();
+  } catch (error) { toast(error.message, true); }
+  finally { setBusy(false); }
+}
+
+async function syncAppleAds() {
+  if (!state.appId) return;
+  setBusy(true);
+  try {
+    state.appleAds = await request("/api/apple-ads/sync", {
+      method: "POST",
+      body: { appId: state.appId, country: state.country, device: state.device, days: 30 },
+    });
+    state.appleAdsLoaded = true;
+    renderAppleAds();
+    toast(`Apple Ads synced: ${state.appleAds.sync?.keywords || 0} keywords and ${state.appleAds.sync?.suggestions || 0} suggestions.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function switchTab(tab, scroll = true) {
   state.tab = tab;
   all("[data-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === tab));
@@ -1175,6 +1703,16 @@ function relativeDate(value) {
   return `Updated ${days} days ago`;
 }
 function formatCompact(value) { return new Intl.NumberFormat(undefined, { notation: Number(value) >= 1000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value || 0); }
+function formatPaidMoney(value, currency) {
+  if (value == null) return "—";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  if (currency) {
+    try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount); }
+    catch { return `${amount.toFixed(2)} ${currency}`; }
+  }
+  return amount.toFixed(2);
+}
 function formatBytes(value) { if (!value) return "—"; return `${(value / 1024 / 1024).toFixed(0)} MB`; }
 function metricTrend(trend, label, periodDays) {
   if (!trend) return "";

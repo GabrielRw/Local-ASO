@@ -2,7 +2,7 @@
 
 Local ASO Tracker is an open-source, local-first App Store keyword rank tracker with a Python CLI and a browser dashboard. Track multiple iOS apps across countries and iPhone/iPad search results, keep historical checks in SQLite, and export your data without a hosted ASO subscription.
 
-There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. The backend uses Apple’s public iTunes Search API; the dashboard can render artwork and screenshots hosted by Apple. No Apple login or API keys are required.
+There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. Core rank tracking uses Apple’s public iTunes Search API. An optional read-only Apple Ads integration can import campaign targeting, bids, and performance when local API OAuth credentials are supplied. The dashboard can render artwork and screenshots hosted by Apple. No Apple login is required; Apple Ads OAuth credentials are optional.
 
 > This tracks public search-result positions, not guaranteed on-device App Store ranks. Apple does not expose search volume or downloads, so the dashboard's volume and difficulty values are clearly labeled local estimates derived from matching-app ratings.
 
@@ -15,8 +15,10 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Overall daily average-rank trend for all tracked keywords in the selected storefront and device.
 - Non-blocking full-catalog synchronization at dashboard startup and once every 24 hours while it remains open.
 - “Losing to” leaderboard counting Top 5 competitors that appear ahead across the current keyword set.
+- Competitor keyword matrix with apps as columns, tracked keywords as rows, and refreshed rank positions.
 - Ratings-based audience and top-10 competition estimates, stored separately with each successful check.
 - App-wide Niche research boards powered by a locally installed Codex or Claude CLI, with unlimited country columns and on-demand refreshes.
+- Optional read-only Apple Ads reporting for current targeting keywords, bids, spend, taps, installs, and Apple keyword suggestions.
 - The first five returned apps for each keyword, displayed as Apple artwork with hover/focus names.
 - Public listing-health review, screenshot previews when available, and competitor comparison.
 - Three-step listing keyword-coverage audit with locally saved title, subtitle, and keyword field.
@@ -29,6 +31,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Quick start](#quick-start)
 - [Using the dashboard](#using-the-dashboard)
 - [Niche research](#niche-research)
+- [Competitor keyword matrix](#competitor-keyword-matrix)
+- [Apple Ads reporting](#apple-ads-reporting)
 - [Local MCP server](#local-mcp-server)
 - [CLI-only first setup](#cli-only-first-setup)
 - [Ranking methodology and limits](#what-it-measuresand-what-it-does-not)
@@ -101,7 +105,8 @@ uv run aso dashboard --no-open --no-mcp
 5. **Explore history.** Filter the keyword table, then click a keyword row to see its historical ranks. Better ranks are shown higher in the chart. The **Overall rank trend** card at the bottom aggregates the daily average of found keywords across the selected storefront/device. Use **×** to stop tracking a target without deleting its existing history.
 6. **Review the listing.** The **Listing health** tab shows a public-data completeness heuristic, a score breakdown, screenshots when Apple returns their URLs, and suggested improvements. This is not an Apple score.
 7. **Audit keyword coverage.** In **Listing health**, choose the main listing storefront, load the App Store name, and paste the subtitle and keyword field from App Store Connect. The local three-step audit saves these fields for that app/storefront and reports target terms, tracked keyword matches, and how many already have ranking positions.
-8. **Compare apps.** Add a competitor to your app list, open **Competitors**, choose it, and compare the publicly returned listing fields side by side.
+8. **Compare apps.** Open a keyword’s Top 5 result stack under **Keywords**, click an app icon, and choose **Add to competitors**. The **Competitors** tab then shows the keyword-by-app rank matrix. The existing public-listing comparison remains lower on the same tab.
+9. **Review paid search.** When Apple Ads OAuth credentials are configured, open **Paid search** to discover the accessible ad account, import current campaigns and targeting keywords, and compare Apple-reported spend and installs. The panel also shows suggestions seeded by the app’s best ASO keywords.
 
 **Setup guide** in the sidebar reopens onboarding anytime. The default storefront catalog includes Australia, Canada, France, the United Kingdom, and the United States. To add another storefront, use the [country CLI commands](#countries), then refresh the dashboard.
 
@@ -127,6 +132,48 @@ The optional agent settings in `config.toml` are:
 agent_provider = "auto"
 agent_timeout = 120.0
 ```
+
+## Competitor keyword matrix
+
+The Competitors tab starts with a keyword ranking matrix:
+
+- The first column lists the primary app’s tracked keywords for the selected storefront and device.
+- The remaining columns are the primary app plus every competitor added from a Top 5 app icon.
+- Each cell shows a returned rank, `>limit` when the app was absent from Apple’s result window, `—` when that competitor has not yet been refreshed, or `!` when an Apple request failed.
+- **Refresh rankings** performs one public Apple Search request per tracked keyword and extracts the primary and competitor positions from the same response.
+- Competitor columns can be removed without deleting their locally stored rank data.
+
+The app icon action menu is available from each Top 5 stack in the keyword rankings table. Adding a competitor does not add it to the left sidebar or to the primary tracked-app catalog.
+
+## Apple Ads reporting
+
+The **Paid search** tab is a read-only Apple Ads Platform API integration. It cannot create, pause, edit, or delete campaigns, ad groups, keywords, bids, or budgets.
+
+Apple Ads requires a locally generated signed client secret. The app accepts the signed secret at:
+
+```text
+~/.local-aso-tracker/apple-ads-oauth/client-secret.jwt
+```
+
+For a custom `ASO_DATA_DIR`, place it at `<ASO_DATA_DIR>/apple-ads-oauth/client-secret.jwt`. The parent directory should be mode `0700` and the secret should be mode `0600`:
+
+```bash
+chmod 700 ~/.local-aso-tracker/apple-ads-oauth
+chmod 600 ~/.local-aso-tracker/apple-ads-oauth/client-secret.jwt
+```
+
+The client ID is read from the signed JWT’s `sub` claim. OAuth access tokens remain in memory; the app never writes the client secret, OAuth token, or full Apple Ads response to SQLite, logs, exports, browser payloads, or Git. The client secret must be regenerated before its JWT expiry.
+
+To connect:
+
+1. Open an app and select **Paid search**.
+2. Choose **Discover accounts** and select the Apple Ads ad account that owns the app campaigns.
+3. Choose **Sync Apple Ads**. The app imports campaigns whose promoted app ID matches the selected App Store app.
+4. Use the storefront and device selectors to view country/device-specific keyword metrics.
+
+The 30-day report includes each keyword’s configured bid, match type, status, local spend, impressions, taps, tap installs, total installs, and cost per tap. The Paid search keyword table is grouped by the campaign’s Apple Ads country targeting rather than by campaign; a keyword used in multiple campaigns is aggregated into one country row with a campaign count. Paused keywords, including keywords in paused campaigns, are hidden by default and can be revealed with **Show paused**. Clicking an ASO Rank value refreshes that keyword/country/device ranking; a `⌕` value creates the missing local storefront and tracking target first. Keyword reports require one Apple Ads campaign query each, so larger accounts naturally take longer to synchronize. Apple Ads uses its own rate limits; the local client retries transient HTTP 429 and 5xx responses conservatively.
+
+The suggestion section calls Apple’s read-only keyword-suggestion endpoint with the app ID, selected storefront, and up to 20 highest-ranking locally tracked ASO keywords. Apple’s returned popularity score is a relative suggestion signal and is not search volume. Suggested terms can be added to the local ASO tracker, but are never written back to Apple Ads.
 
 ## Local MCP server
 
@@ -211,10 +258,12 @@ By default all mutable data stays under:
 ~/.local-aso-tracker/
 ├── aso.db
 ├── config.toml
+├── apple-ads-oauth/
+│   └── client-secret.jwt
 └── logs/aso.log
 ```
 
-Checks store UTC timestamps; the CLI displays them in your local timezone. Browser dates follow your browser’s locale. Search keywords, storefronts, device entities, and app IDs are sent to Apple to retrieve public data. Local history is not uploaded to a hosted tracker.
+Checks store UTC timestamps; the CLI displays them in your local timezone. Browser dates follow your browser’s locale. Search keywords, storefronts, device entities, and app IDs are sent to Apple to retrieve public data. Apple Ads app IDs, account IDs, campaign IDs, keyword text, and report date ranges are sent to Apple only when the optional read-only integration is synchronized. Local history is not uploaded to a hosted ASO service.
 
 Set `ASO_DATA_DIR` to use another directory. Keep the same value for every command in that workspace:
 
@@ -230,7 +279,7 @@ $env:ASO_DATA_DIR = Join-Path $PWD ".local-aso-data"
 uv run aso dashboard
 ```
 
-`config.toml` contains no secrets. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window.
+`config.toml` contains no secrets. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `agent_provider`, `agent_timeout`, `apple_ads_account_id`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window. `apple_ads_account_id = 0` means that no ad account has been selected.
 
 Example configuration:
 
@@ -242,6 +291,7 @@ concurrency = 2
 result_limit = 200
 agent_provider = "auto"
 agent_timeout = 120.0
+apple_ads_account_id = 0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264
 ```
@@ -439,7 +489,7 @@ uv run aso init
 uv run aso dashboard
 ```
 
-Migrations are applied automatically on initialization and dashboard launch. Earlier development versions contained Apple Ads popularity and an ASO principle audit. Their obsolete tables are removed by migration; apps, keywords, targets, and rank history are retained. Legacy `apple-ads.toml` credentials are no longer read or used and can be deleted locally. Updating this app does not revoke external Apple access or modify campaigns.
+Migrations are applied automatically on initialization and dashboard launch. Earlier development versions contained Apple Ads popularity and an ASO principle audit. Those specific obsolete tables remain removed by migration; apps, keywords, targets, and rank history are retained. The current paid-search integration is separate and read-only. Legacy `apple-ads.toml` credentials are not read; the current connector uses `apple-ads-oauth/client-secret.jwt`. Updating this app does not revoke external Apple access or modify campaigns.
 
 ## Troubleshooting
 
@@ -454,7 +504,8 @@ Migrations are applied automatically on initialization and dashboard launch. Ear
 - **`>200` despite a device result:** the public API can differ from device search and may return fewer than 200 items.
 - **Custom data location seems empty:** confirm that `ASO_DATA_DIR` is identical for initialization and later commands.
 - **Screenshots are unavailable:** Apple sometimes omits screenshot URLs. Use the App Store verification link; unavailable media is not scored as zero.
-- **No popularity or principle-audit controls:** these features are intentionally not part of the current app.
+- **No Apple Ads accounts found:** confirm that the signed client secret is unexpired, owner-readable only, and belongs to an Apple Ads user with API access.
+- **Apple Ads empty for a market:** choose the correct storefront/device and run **Sync Apple Ads**; Apple returns only report rows with data for that completed-day window.
 
 To discover command options:
 

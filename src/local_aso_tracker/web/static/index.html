@@ -44,6 +44,7 @@
           <div class="tabs" role="tablist" aria-label="App insights">
             <button class="tab active" role="tab" data-tab="rankings">Keywords</button>
             <button class="tab" role="tab" data-tab="health">Listing health</button>
+            <button class="tab" role="tab" data-tab="paid">Paid search</button>
             <button class="tab" role="tab" data-tab="compare">Competitors</button>
           </div>
           <div class="toolbar-actions">
@@ -104,12 +105,21 @@
         </section>
 
         <section class="tab-panel" id="comparePanel" data-panel="compare">
+          <section class="card competitor-matrix-card" id="competitorMatrix">
+            <div class="paid-search-empty"><div class="empty-icon">⇄</div><h2>Competitor matrix</h2><p>Loading keyword rankings…</p></div>
+          </section>
           <section class="card compare-control">
             <div><p class="section-kicker">Competitor insights</p><h2>Compare public listing signals</h2><p>Choose another configured app. Both columns are fetched from Apple’s public listing data for the selected storefront.</p></div>
             <div class="compare-picker"><select id="competitorSelect" aria-label="Competitor app"></select><button class="button button-primary" id="compareButton">Compare apps</button></div>
           </section>
           <section class="card comparison-card" id="comparisonCard">
             <div class="empty-state"><div class="empty-icon">⇄</div><h3>Select a competitor</h3><p>Add another app to your local tracker, then compare listing completeness side by side.</p></div>
+          </section>
+        </section>
+
+        <section class="tab-panel" id="paidSearchPanel" data-panel="paid">
+          <section class="paid-search-content" id="appleAdsContent">
+            <div class="card paid-search-empty"><div class="empty-icon">◎</div><h2>Apple Ads</h2><p>Loading read-only campaign data…</p></div>
           </section>
         </section>
       </div>
@@ -237,6 +247,11 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <div class="app-tooltip" id="appTooltip" role="tooltip" hidden></div>
+  <div class="top-app-menu" id="topAppMenu" role="dialog" aria-label="Top result actions" hidden>
+    <button type="button" class="top-app-menu-close" id="topAppMenuClose" aria-label="Close">×</button>
+    <div class="top-app-menu-identity"><span class="top-app-menu-artwork" id="topAppMenuArtwork"></span><div><strong id="topAppMenuName"></strong><small>App Store search result</small></div></div>
+    <button type="button" class="button button-primary" id="addTopAppCompetitor">+ Add to competitors</button>
+  </div>
   <div class="busy" id="busy" hidden><span></span><p>Working locally…</p></div>
   <script src="/app.js" defer></script>
   <script src="/onboarding.js" defer></script>

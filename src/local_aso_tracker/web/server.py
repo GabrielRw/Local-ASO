@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
 
+from local_aso_tracker.apple.ads import AppleAdsError
 from local_aso_tracker.apple.client import AppleClientError
 from local_aso_tracker.apple.listing import AppleListing, lookup_listing
 from local_aso_tracker.config import (
@@ -39,6 +40,7 @@ from local_aso_tracker.models import (
 from local_aso_tracker.repositories.data import (
     add_app,
     add_keyword,
+    add_storefront,
     add_target,
     get_listing_metadata,
     latest_pairs,
@@ -64,8 +66,20 @@ from local_aso_tracker.services.analytics import (
     movement,
     opportunity_group,
 )
+from local_aso_tracker.services.apple_ads import (
+    apple_ads_status,
+    discover_accounts,
+    select_account,
+    sync_apple_ads,
+)
 from local_aso_tracker.services.automatic_sync import AutomaticSyncWorker
 from local_aso_tracker.services.checks import run_checks
+from local_aso_tracker.services.competitors import (
+    add_competitor,
+    competitor_matrix,
+    refresh_competitor_ranks,
+    remove_competitor,
+)
 from local_aso_tracker.services.coverage import TrackedKeyword, analyze_listing_coverage
 from local_aso_tracker.services.estimates import ESTIMATE_VERSION
 from local_aso_tracker.services.health import assess_listing
@@ -315,6 +329,95 @@ class DashboardService:
                 raise ValueError(f"{provider} CLI is not installed or not available on PATH")
         settings = update_settings(agent_provider=provider)
         return {"provider": settings.agent_provider}
+
+    def apple_ads(self, app_id: int | None, country: str, device: str) -> dict[str, object]:
+        return apple_ads_status(app_id, country, device)
+
+    def check_paid_keyword_rank(self, body: dict[str, Any]) -> dict[str, object]:
+        app_id = int(body["appId"])
+        keyword = " ".join(str(body["keyword"]).split())
+        if not keyword:
+            raise ValueError("keyword is required")
+        country = validate_country_code(str(body["country"]))
+        device = validate_device(str(body.get("device", "iphone")))
+        country_name = " ".join(str(body.get("countryName") or country.upper()).split())[:100]
+        with session_scope() as session:
+            storefront = session.scalar(
+                select(Storefront).where(Storefront.country_code == country)
+            )
+            if storefront is None:
+                add_storefront(session, country, country_name or country.upper())
+            elif not storefront.active:
+                storefront.active = True
+        result = self.add_keyword_targets(
+            {
+                "appId": app_id,
+                "keywords": keyword,
+                "countries": [country],
+                "devices": [device],
+            }
+        )
+        with session_scope() as session:
+            target = list_targets(
+                session,
+                apple_id=app_id,
+                keyword=keyword,
+                country=country,
+                device=device,
+                active_only=True,
+            )[0]
+            pair = latest_pairs(session, [target]).get(target.id)
+            check = pair[0] if pair else None
+            result["rankCheck"] = (
+                {
+                    "rank": check.rank,
+                    "found": check.found,
+                    "resultLimit": check.result_limit,
+                    "status": check.status,
+                    "checkedAt": _iso_utc(check.checked_at),
+                }
+                if check is not None
+                else None
+            )
+        result["country"] = country
+        result["device"] = device
+        result["keyword"] = keyword
+        return result
+
+    def discover_apple_ads_accounts(self, _body: dict[str, Any]) -> dict[str, object]:
+        return discover_accounts()
+
+    def select_apple_ads_account(self, body: dict[str, Any]) -> dict[str, object]:
+        return select_account(int(body["adAccountId"]))
+
+    def sync_apple_ads(self, body: dict[str, Any]) -> dict[str, object]:
+        return sync_apple_ads(
+            apple_app_id=int(body["appId"]),
+            country=str(body.get("country", "us")),
+            device=str(body.get("device", "iphone")),
+            days=int(body.get("days", 30)),
+        )
+
+    def competitors(self, app_id: int, country: str, device: str) -> dict[str, object]:
+        return competitor_matrix(app_id, country, device)
+
+    def add_competitor(self, body: dict[str, Any]) -> dict[str, object]:
+        return add_competitor(
+            primary_app_id=int(body["appId"]),
+            apple_app_id=int(body["competitorAppId"]),
+            name=str(body["name"]),
+            artwork_url=(str(body["artworkUrl"]) if body.get("artworkUrl") is not None else None),
+        )
+
+    def remove_competitor(self, body: dict[str, Any]) -> dict[str, object]:
+        return remove_competitor(int(body["competitorAppId"]))
+
+    def refresh_competitor_ranks(self, body: dict[str, Any]) -> dict[str, object]:
+        return refresh_competitor_ranks(
+            int(body["appId"]),
+            str(body.get("country", "us")),
+            str(body.get("device", "iphone")),
+        )
 
     def compare(self, app_id: int, competitor_id: int, country: str) -> dict[str, object]:
         primary = self.listing(app_id, country)
@@ -801,6 +904,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/competitors":
+                query = parse_qs(parsed.query)
+                self._json(
+                    self.service.competitors(
+                        int(query["appId"][0]),
+                        query.get("country", ["us"])[0],
+                        query.get("device", ["iphone"])[0],
+                    )
+                )
+                return
             if parsed.path == "/api/niche":
                 query = parse_qs(parsed.query)
                 board_id = int(query["boardId"][0]) if query.get("boardId") else None
@@ -816,8 +929,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     }
                 )
                 return
+            if parsed.path == "/api/apple-ads":
+                query = parse_qs(parsed.query)
+                app_id = int(query["appId"][0]) if query.get("appId") else None
+                self._json(
+                    self.service.apple_ads(
+                        app_id,
+                        query.get("country", ["us"])[0],
+                        query.get("device", ["iphone"])[0],
+                    )
+                )
+                return
             self._static(parsed.path)
-        except (ValueError, KeyError, AppleClientError, AgentError) as exc:
+        except (ValueError, KeyError, AppleClientError, AppleAdsError, AgentError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
             logger.debug("Dashboard GET failed", exc_info=True)
@@ -829,6 +953,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             body = self._read_json()
             actions = {
                 "/api/keywords": self.service.add_keyword_targets,
+                "/api/keywords/check-rank": self.service.check_paid_keyword_rank,
                 "/api/keywords/localize": self.service.localize_keywords,
                 "/api/listing-metadata": self.service.save_listing_coverage,
                 "/api/apps": self.service.add_app_from_apple,
@@ -837,6 +962,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/targets/deactivate": self.service.deactivate_target,
                 "/api/onboarding/complete": self.service.finish_onboarding,
                 "/api/settings/agent": self.service.save_agent_provider,
+                "/api/apple-ads/discover": self.service.discover_apple_ads_accounts,
+                "/api/apple-ads/account": self.service.select_apple_ads_account,
+                "/api/apple-ads/sync": self.service.sync_apple_ads,
+                "/api/competitors/add": self.service.add_competitor,
+                "/api/competitors/remove": self.service.remove_competitor,
+                "/api/competitors/refresh": self.service.refresh_competitor_ranks,
                 "/api/niche/generate": self.service.generate_niche_board,
                 "/api/niche/check": self.service.check_niche_board,
                 "/api/niche/agent-keywords": self.service.add_niche_agent_keywords,
@@ -848,7 +979,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.NOT_FOUND, "unknown local action")
                 return
             self._json(action(body))
-        except (ValueError, KeyError, AppleClientError, AgentError) as exc:
+        except (ValueError, KeyError, AppleClientError, AppleAdsError, AgentError) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
             logger.debug("Dashboard POST failed", exc_info=True)

@@ -1,7 +1,7 @@
 # Local ASO Tracker contributor instructions
 
 - Target Python 3.12 or newer and manage the environment with `uv`.
-- Keep the application local-only. Persist application data in SQLite and make external runtime requests only to Apple's public iTunes Search API.
+- Keep the application local-only. Persist application data in SQLite and make external runtime requests only to Apple's public iTunes Search API or the optional read-only Apple Ads Platform API using local OAuth credentials.
 - Keep CLI, configuration, persistence, Apple HTTP code, services, and report generation in separate modules.
 - Use UTC for persisted timestamps and local time for user-facing CLI timestamps.
 - Preserve ranking uncertainty: a missing app has `rank = NULL`, `found = false`, and is displayed as `>limit`.

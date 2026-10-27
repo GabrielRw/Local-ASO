@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from datetime import date as Date
+from decimal import Decimal
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
+)
+from sqlalchemy import (
+    Date as SADate,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -297,3 +304,185 @@ class RankTopApp(Base):
     artwork_url: Mapped[str | None] = mapped_column(Text)
 
     rank_check: Mapped[RankCheck] = relationship(back_populates="top_apps")
+
+
+class AppleAdsAccount(Base):
+    """An Apple Ads ad account visible to the local API credential."""
+
+    __tablename__ = "apple_ads_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ad_account_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    org_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    name: Mapped[str] = mapped_column(String(255))
+    roles: Mapped[str] = mapped_column(Text, default="")
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class AppleAdsCampaign(Base):
+    """A read-only Apple Ads campaign linked to its promoted App Store app."""
+
+    __tablename__ = "apple_ads_campaigns"
+    __table_args__ = (
+        UniqueConstraint("ad_account_id", "campaign_id", name="uq_apple_ads_campaign"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ad_account_id: Mapped[int] = mapped_column(
+        ForeignKey("apple_ads_accounts.id", ondelete="CASCADE"), index=True
+    )
+    campaign_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(30))
+    promoted_object_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    promoted_object_type: Mapped[str | None] = mapped_column(String(40))
+    countries: Mapped[str] = mapped_column(Text, default="")
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    account: Mapped[AppleAdsAccount] = relationship()
+    keywords: Mapped[list[AppleAdsKeyword]] = relationship(
+        back_populates="campaign", cascade="all, delete-orphan"
+    )
+
+
+class AppleAdsKeyword(Base):
+    """An Apple Ads targeting keyword and its current configured bid."""
+
+    __tablename__ = "apple_ads_keywords"
+    __table_args__ = (UniqueConstraint("campaign_id", "keyword_id", name="uq_apple_ads_keyword"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(
+        ForeignKey("apple_ads_campaigns.id", ondelete="CASCADE"), index=True
+    )
+    keyword_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    ad_group_id: Mapped[int | None] = mapped_column(BigInteger)
+    ad_group_name: Mapped[str | None] = mapped_column(String(255))
+    text: Mapped[str] = mapped_column(String(255))
+    normalized_text: Mapped[str] = mapped_column(String(255), index=True)
+    match_type: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    display_status: Mapped[str | None] = mapped_column(String(30))
+    bid_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    bid_currency: Mapped[str | None] = mapped_column(String(3))
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    campaign: Mapped[AppleAdsCampaign] = relationship(back_populates="keywords")
+    metrics: Mapped[list[AppleAdsKeywordMetric]] = relationship(
+        back_populates="keyword", cascade="all, delete-orphan"
+    )
+
+
+class AppleAdsKeywordMetric(Base):
+    """Apple Ads keyword performance for one day, market, and device."""
+
+    __tablename__ = "apple_ads_keyword_metrics"
+    __table_args__ = (
+        UniqueConstraint(
+            "apple_ads_keyword_id",
+            "metric_date",
+            "country_or_region",
+            "device_class",
+            name="uq_apple_ads_keyword_metric",
+        ),
+        Index("ix_apple_ads_metrics_account_date", "ad_account_id", "metric_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ad_account_id: Mapped[int] = mapped_column(
+        ForeignKey("apple_ads_accounts.id", ondelete="CASCADE"), index=True
+    )
+    apple_ads_keyword_id: Mapped[int] = mapped_column(
+        ForeignKey("apple_ads_keywords.id", ondelete="CASCADE"), index=True
+    )
+    metric_date: Mapped[Date] = mapped_column(SADate, index=True)
+    country_or_region: Mapped[str] = mapped_column(String(10), index=True)
+    device_class: Mapped[str] = mapped_column(String(20), index=True)
+    impressions: Mapped[int] = mapped_column(Integer, default=0)
+    taps: Mapped[int] = mapped_column(Integer, default=0)
+    local_spend: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
+    currency: Mapped[str | None] = mapped_column(String(3))
+    tap_installs: Mapped[int] = mapped_column(Integer, default=0)
+    total_installs: Mapped[int] = mapped_column(Integer, default=0)
+    ttr: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    cpt: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    suggested_bid: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    keyword: Mapped[AppleAdsKeyword] = relationship(back_populates="metrics")
+
+
+class AppleAdsSuggestion(Base):
+    """Apple's latest read-only keyword suggestion for one app and market."""
+
+    __tablename__ = "apple_ads_suggestions"
+    __table_args__ = (
+        UniqueConstraint(
+            "app_id",
+            "country_or_region",
+            "normalized_text",
+            name="uq_apple_ads_suggestion",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), index=True)
+    country_or_region: Mapped[str] = mapped_column(String(10), index=True)
+    text: Mapped[str] = mapped_column(String(255))
+    normalized_text: Mapped[str] = mapped_column(String(255), index=True)
+    popularity: Mapped[int | None] = mapped_column(Integer)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class CompetitorApp(Base):
+    """A read-only app column in the keyword competitor matrix."""
+
+    __tablename__ = "competitor_apps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    apple_app_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    artwork_url: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    ranks: Mapped[list[CompetitorRank]] = relationship(
+        back_populates="competitor", cascade="all, delete-orphan"
+    )
+
+
+class CompetitorRank(Base):
+    """Latest public App Store rank for a competitor keyword target."""
+
+    __tablename__ = "competitor_ranks"
+    __table_args__ = (
+        UniqueConstraint(
+            "competitor_app_id",
+            "keyword_id",
+            "storefront_id",
+            "device",
+            name="uq_competitor_rank_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competitor_app_id: Mapped[int] = mapped_column(
+        ForeignKey("competitor_apps.id", ondelete="CASCADE"), index=True
+    )
+    keyword_id: Mapped[int] = mapped_column(ForeignKey("keywords.id"), index=True)
+    storefront_id: Mapped[int] = mapped_column(ForeignKey("storefronts.id"), index=True)
+    device: Mapped[str] = mapped_column(String(10), index=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    found: Mapped[bool] = mapped_column(Boolean)
+    result_limit: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    competitor: Mapped[CompetitorApp] = relationship(back_populates="ranks")

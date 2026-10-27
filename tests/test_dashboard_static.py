@@ -53,6 +53,25 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert "monitorAutomaticSync" in script
     assert "/api/sync-status" in script
     assert 'id="syncIndicator"' in html
+    assert 'id="paidSearchPanel"' in html
+    assert 'id="appleAdsContent"' in html
+    assert "loadAppleAds" in script
+    assert "/api/apple-ads/sync" in script
+    assert "appleAdsKeywordRow" in script
+    assert "appleAdsShowPaused" in script
+    assert "Show paused" in script
+    assert "paidCountryFilterButton" in script
+    assert "paidSortHeader" in script
+    assert "/api/keywords/check-rank" in script
+    assert "checkPaidKeywordRank" in script
+    assert ".paid-country-filter" in styles
+    assert ".paid-aso-rank" in styles
+    assert 'id="topAppMenu"' in html
+    assert 'id="competitorMatrix"' in html
+    assert "addPendingTopAppCompetitor" in script
+    assert "competitorMatrixAction" in script
+    assert "/api/competitors/refresh" in script
+    assert ".competitor-matrix-table" in styles
     assert "openMetricHistory" in script
     assert "data-metric-series" in script
     assert "renderListingCoverage" in script
@@ -70,11 +89,16 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert "@media (max-width: 800px)" in styles
 
 
-def test_dashboard_has_no_popularity_or_credentials_workflow() -> None:
+def test_dashboard_does_not_accept_or_render_apple_ads_secret_material() -> None:
     static = files("local_aso_tracker.web").joinpath("static")
     for filename in ("index.html", "app.js", "onboarding.js", "styles.css"):
         content = static.joinpath(filename).read_text(encoding="utf-8").lower()
-        for retired in ("popularity", "appleads", "apple-ads", "oauth", "clientsecret"):
+        for retired in (
+            "private.jwt.token",
+            "signed es256 jwt",
+            "client_secret=",
+            "apple-ads.toml",
+        ):
             assert retired not in content, f"{retired} remains in {filename}"
     html = static.joinpath("index.html").read_text(encoding="utf-8")
     assert html.count("data-setup-step=") == 3

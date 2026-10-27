@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from local_aso_tracker.apple.listing import AppleListing
 from local_aso_tracker.database import run_migrations, session_scope
-from local_aso_tracker.models import RankCheck, RankTopApp
+from local_aso_tracker.models import RankCheck, RankTopApp, Storefront
 from local_aso_tracker.repositories.data import (
     add_app,
     list_targets,
@@ -192,6 +192,38 @@ def test_dashboard_exposes_visibility_for_every_tracked_country(
     assert country_rows == {"us", "fr"}
 
 
+def test_paid_keyword_rank_search_creates_missing_storefront_and_checks_rank(
+    dashboard: DashboardService,
+) -> None:
+    result = dashboard.check_paid_keyword_rank(
+        {
+            "appId": 6771773264,
+            "keyword": "astrology for beginners",
+            "country": "be",
+            "countryName": "Belgium",
+            "device": "iphone",
+        }
+    )
+
+    assert result["keyword"] == "astrology for beginners"
+    assert result["country"] == "be"
+    assert result["device"] == "iphone"
+    assert result["automaticCheck"] == {"checks": 1, "searches": 1, "failures": 0}
+    assert result["rankCheck"]["rank"] == 9
+    with session_scope() as session:
+        storefront = session.scalar(select(Storefront).where(Storefront.country_code == "be"))
+        target = list_targets(
+            session,
+            apple_id=6771773264,
+            keyword="astrology for beginners",
+            country="be",
+            device="iphone",
+            active_only=True,
+        )[0]
+        assert storefront is not None and storefront.active is True
+        assert successful_checks(session, [target])[0].rank == 9
+
+
 def test_dashboard_adds_comma_separated_keywords_for_multiple_devices(
     dashboard: DashboardService,
 ) -> None:
@@ -326,13 +358,16 @@ def test_retired_feature_endpoints_return_not_found(dashboard: DashboardService)
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
     try:
         with httpx.Client(base_url=base_url, trust_env=False) as client:
-            for action in ("connect", "verify", "disconnect", "sync"):
+            for action in ("connect", "verify", "disconnect"):
                 response = client.post(f"/api/apple-ads/{action}", json={})
                 assert response.status_code == 404
             assert client.post("/api/listing-audit", json={}).status_code == 404
             response = client.get("/api/apple-ads/discovered?appId=6771773264&country=us")
             assert response.status_code == 404
             assert client.get("/api/bootstrap?appId=6771773264&country=us").status_code == 200
+            ads = client.get("/api/apple-ads?appId=6771773264&country=us&device=iphone")
+            assert ads.status_code == 200
+            assert ads.json()["credentials"]["available"] is False
     finally:
         server.shutdown()
         server.server_close()

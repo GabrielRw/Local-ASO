@@ -27,6 +27,7 @@ class Settings(BaseModel):
     result_limit: int = Field(default=200, ge=1, le=200)
     agent_provider: Literal["auto", "codex", "claude"] = "auto"
     agent_timeout: float = Field(default=120.0, ge=10, le=600)
+    apple_ads_account_id: int = Field(default=0, ge=0)
     default_countries: list[str] = Field(default_factory=lambda: ["us", "fr", "gb", "ca", "au"])
     default_app_id: int = 6771773264
 
@@ -73,6 +74,12 @@ def log_path() -> Path:
     return data_dir() / "logs" / "aso.log"
 
 
+def apple_ads_credentials_path() -> Path:
+    """Return the local Apple Ads client-secret path."""
+
+    return data_dir() / "apple-ads-oauth" / "client-secret.jwt"
+
+
 def load_settings() -> Settings:
     """Load settings, using defaults when initialization has not run yet."""
 
@@ -99,6 +106,7 @@ concurrency = 2
 result_limit = 200
 agent_provider = "auto"
 agent_timeout = 120.0
+apple_ads_account_id = 0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264
 """,

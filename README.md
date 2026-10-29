@@ -21,7 +21,7 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Optional read-only Apple Ads reporting for current targeting keywords, bids, spend, taps, installs, and Apple keyword suggestions.
 - The first five returned apps for each keyword, displayed as Apple artwork with hover/focus names.
 - Public listing-health review, screenshot previews when available, and competitor comparison.
-- Three-step listing keyword-coverage audit with locally saved title, subtitle, and keyword field.
+- Three-step listing strategy audit with distribution goal, brand term, highlighted duplication checks, and title-order verification.
 - CLI commands for managing apps, keywords, storefronts, and tracking targets.
 - CSV/JSON exports and a self-contained HTML report that can be opened offline.
 - SQLite persistence, idempotent setup, and optional scheduling through your operating system.
@@ -101,10 +101,10 @@ uv run aso dashboard --no-open --no-mcp
 1. **Choose an app.** Use the app list in the left sidebar. **+ Add app** imports another app by numerical App Store ID; its public name and listing details come from Apple. The small **×** on an app row removes it from the visible workspace after confirmation while preserving its tracking and history. Adding the same App Store ID again restores it.
 2. **Choose a country and device.** The storefront and device selectors control the visible ranking rows. iPhone and iPad have independent tracking targets and history; changing devices does not combine their ranks.
 3. **Add keywords.** Click **+ Add keyword**, enter terms such as `notes, quick notes, daily journal`, then select one or more storefronts and devices. Duplicates are ignored. Each selected combination receives an automatic first rank check. **Localize selected** previews curated French and Spanish market phrases before anything is added.
-4. **Refresh results.** Use **Run check** for the selected app, storefront, and device. Later checks create history rather than overwriting previous results. Apple failures are reported so you can retry.
+4. **Refresh results.** Use **Run check** for the selected app, storefront, and device. A target with a successful check in the last 24 hours is skipped, while missing, failed, or stale checks remain eligible. Later checks create history rather than overwriting previous results, and Apple failures are reported so you can retry.
 5. **Explore history.** Filter the keyword table, then click a keyword row to see its historical ranks. Better ranks are shown higher in the chart. The **Overall rank trend** card at the bottom aggregates the daily average of found keywords across the selected storefront/device. Use **×** to stop tracking a target without deleting its existing history.
 6. **Review the listing.** The **Listing health** tab shows a public-data completeness heuristic, a score breakdown, screenshots when Apple returns their URLs, and suggested improvements. This is not an Apple score.
-7. **Audit keyword coverage.** In **Listing health**, choose the main listing storefront, load the App Store name, and paste the subtitle and keyword field from App Store Connect. The local three-step audit saves these fields for that app/storefront and reports target terms, tracked keyword matches, and how many already have ranking positions.
+7. **Audit listing strategy.** In **Listing health**, first choose **ASO / SEO / AEO** or **UGC / Ads**, confirm the brand term and storefront, then paste the subtitle and keyword field from App Store Connect. The audit checks repeated words across title, subtitle, and keyword field; verifies the goal-specific title order; and separates tracked keyword matches from metadata terms that are not yet tracked.
 8. **Compare apps.** Open a keyword’s Top 5 result stack under **Keywords**, click an app icon, and choose **Add to competitors**. The **Competitors** tab then shows the keyword-by-app rank matrix. The existing public-listing comparison remains lower on the same tab.
 9. **Review paid search.** When Apple Ads OAuth credentials are configured, open **Paid search** to discover the accessible ad account, import current campaigns and targeting keywords, and compare Apple-reported spend and installs. The panel also shows suggestions seeded by the app’s best ASO keywords.
 
@@ -112,7 +112,7 @@ uv run aso dashboard --no-open --no-mcp
 
 The dashboard is a local tool without authentication. Keep the default loopback address; do not expose it on a public server or bind it to an untrusted network.
 
-When the dashboard starts, a daemon worker begins refreshing every active app/keyword/storefront/device target in the background. The first run starts immediately and subsequent runs start every 24 hours while the process stays open. The dashboard remains responsive, a later launch starts a fresh sync, and overlapping automatic runs are prevented. The page polls local sync status and refreshes its visible rankings when a run completes. Apple still enforces its own rate limits, so large catalogs can take time to finish.
+When the dashboard starts, a daemon worker begins refreshing active app/keyword/storefront/device targets that do not have a successful check in the last 24 hours. The first run starts immediately and subsequent runs start every 24 hours while the process stays open. Recently checked targets are reported as skipped, failed and missing targets remain eligible, and overlapping automatic runs are prevented. The dashboard remains responsive, and the page polls local sync status and refreshes its visible rankings when a run completes. Apple still enforces its own rate limits, so large catalogs can take time to finish.
 
 ## Niche research
 
@@ -418,11 +418,18 @@ Localization is deterministic and runs locally. It supports a curated astrology 
 
 The visual design uses an app rail, compact app summary, tabbed work areas, rank tables, health breakdowns, and side-by-side comparison patterns inspired by modern ASO dashboards. It uses original Local ASO Tracker branding and no third-party frontend assets or framework.
 
-Listing health is a transparent local heuristic calculated from public Apple fields: title, description, screenshot availability, ratings, release freshness, and localization count. It is not an Apple score. If Apple does not expose a field, the dashboard marks it unavailable and normalizes the score over the remaining fields instead of treating unknown data as zero. Screenshot URLs are previewed when returned; otherwise the UI links to the App Store for manual verification and does not claim the listing lacks screenshots.
+Public Apple fields such as title, description, screenshot availability, ratings, release freshness, and localization count remain available as informational listing signals, but they do not contribute to the strategy score. Screenshot URLs are previewed when returned; otherwise the UI links to the App Store for manual verification and does not claim the listing lacks screenshots.
+
+The numeric score remains hidden until the user saves a Keyword coverage audit and is then calculated only from that strategy audit. Up to 70 points come from avoiding repeated meaningful words across Name, Subtitle, and Keywords; each extra use reduces the repetition component by 15 points. Up to 30 points come from goal-specific title ordering. The audit ignores common connecting words and treats punctuation, accents, and case as non-distinguishing. Title ordering follows the selected strategy:
+
+- **ASO / SEO / AEO:** one or more meaningful generic terms must precede the brand, and the brand should close the title.
+- **UGC / Ads:** the brand must be the first meaningful term in the title.
+
+The goal, brand term, and metadata are stored only in local SQLite for each app/storefront. The result remains a local heuristic rather than an Apple score.
 
 Competitor comparison requires adding another app to the local catalog and compares only publicly returned listing fields.
 
-The ranking table shows estimated audience and difficulty beside Apple's measured rank. Green volume values indicate the stronger end of the local audience model; red difficulty values indicate the strongest incumbent rating signals. Each successful check also stores the first five returned app names and Apple artwork URLs, which appear as an overlapping icon stack; hover or keyboard focus reveals the app name. The compact responsive row keeps rank, volume, difficulty, Top 5, and the existing opportunity signal visible without a horizontal scroll. These local estimates never replace Apple's returned rank and are never presented as measured search demand.
+The ranking table shows estimated audience and difficulty beside Apple's measured rank. Green volume values indicate the stronger end of the local audience model; red difficulty values indicate the strongest incumbent rating signals. Each successful check also stores the first five returned app names, Apple artwork URLs, average ratings, and rating counts. The icons appear as an overlapping stack with app-name tooltips, while the "Losing to" cards aggregate the most recent storefront-specific average rating and rating count for each competitor. The compact responsive row keeps rank, volume, difficulty, Top 5, and the existing opportunity signal visible without a horizontal scroll. These local estimates never replace Apple's returned rank and are never presented as measured search demand.
 
 
 ## Exports and report

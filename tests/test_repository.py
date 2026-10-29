@@ -10,6 +10,7 @@ from local_aso_tracker.repositories.data import (
     add_keyword,
     add_storefront,
     add_target,
+    filter_targets_due_for_check,
     latest_pairs,
     list_targets,
 )
@@ -69,6 +70,58 @@ def test_latest_rank_query_returns_latest_and_previous(session: Session) -> None
     pair = latest_pairs(session, list_targets(session))[target_id]
     assert pair[0].rank == 10
     assert pair[1] is not None and pair[1].rank == 20
+
+
+def test_freshness_filter_skips_recent_successes_but_keeps_failures_and_stale_checks(
+    session: Session,
+) -> None:
+    recent_target_id = make_target(session)
+    add_keyword(session, "birth chart")
+    failed_target, _ = add_target(session, 6771773264, "birth chart", "us")
+    add_keyword(session, "astrology lessons")
+    stale_target, _ = add_target(session, 6771773264, "astrology lessons", "us")
+    now = datetime.now(UTC)
+    session.add_all(
+        [
+            RankCheck(
+                tracking_target_id=recent_target_id,
+                checked_at=now - timedelta(hours=2),
+                rank=8,
+                found=True,
+                result_limit=200,
+                response_time_ms=10,
+                status="success",
+            ),
+            RankCheck(
+                tracking_target_id=failed_target.id,
+                checked_at=now - timedelta(hours=1),
+                rank=None,
+                found=False,
+                result_limit=200,
+                response_time_ms=10,
+                status="error",
+            ),
+            RankCheck(
+                tracking_target_id=stale_target.id,
+                checked_at=now - timedelta(hours=25),
+                rank=12,
+                found=True,
+                result_limit=200,
+                response_time_ms=10,
+                status="success",
+            ),
+        ]
+    )
+    session.flush()
+
+    due, skipped = filter_targets_due_for_check(
+        session,
+        list_targets(session),
+        cutoff=now - timedelta(hours=24),
+    )
+
+    assert {target.id for target in due} == {failed_target.id, stale_target.id}
+    assert skipped == 1
 
 
 def test_adding_an_existing_app_reactivates_it(session: Session) -> None:

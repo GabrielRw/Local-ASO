@@ -1,4 +1,4 @@
-"""Transparent local listing-health heuristics based only on public Apple fields."""
+"""Transparent health scoring based on the saved listing strategy audit."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
 from local_aso_tracker.apple.listing import AppleListing
+from local_aso_tracker.services.coverage import DistributionStrategyAnalysis
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class HealthItem:
 
 @dataclass(frozen=True)
 class ListingHealth:
-    score: int
+    score: int | None
     label: str
     items: list[HealthItem]
     suggestions: list[str]
@@ -32,15 +33,20 @@ class ListingHealth:
             "items": [asdict(item) for item in self.items],
             "suggestions": self.suggestions,
             "methodology": (
-                "A transparent local heuristic using public title, description, screenshot, "
-                "rating, freshness, and localization fields. Unavailable Apple fields are "
-                "excluded and the remaining score is normalized to 100. It is not an Apple score."
+                "A 100-point local listing strategy score. Up to 70 points come from avoiding "
+                "repeated meaningful words across Name, Subtitle, and Keywords. Up to 30 points "
+                "come from the goal-specific title order. Public listing fields are not scored."
             ),
         }
 
 
-def assess_listing(listing: AppleListing, *, now: datetime | None = None) -> ListingHealth:
-    """Score visible listing completeness without proprietary ASO data."""
+def assess_listing(
+    listing: AppleListing,
+    *,
+    now: datetime | None = None,
+    strategy: DistributionStrategyAnalysis | None = None,
+) -> ListingHealth:
+    """Score only the saved listing strategy audit."""
 
     current = now or datetime.now(UTC)
     title_len = len(listing.track_name.strip())
@@ -114,7 +120,7 @@ def assess_listing(listing: AppleListing, *, now: datetime | None = None) -> Lis
     localization_score = 10 if locales >= 5 else 6 if locales >= 2 else 3 if locales == 1 else 0
     localization_detail = f"{locales} App Store language code(s) returned."
 
-    items = [
+    public_items = [
         HealthItem("title", "Title", title_score, 20, title_detail),
         HealthItem("description", "Description", description_score, 20, description_detail),
         HealthItem(
@@ -129,22 +135,82 @@ def assess_listing(listing: AppleListing, *, now: datetime | None = None) -> Lis
         HealthItem("freshness", "Freshness", freshness_score, 15, freshness_detail),
         HealthItem("localization", "Localization", localization_score, 10, localization_detail),
     ]
-    available_maximum = sum(item.maximum for item in items if item.available)
-    raw_score = sum(item.score for item in items if item.available)
-    score = round(raw_score / available_maximum * 100) if available_maximum else 0
-    suggestions = [
+    public_suggestions = [
         _suggestion(item.key)
-        for item in sorted(items, key=lambda item: item.score / item.maximum)
+        for item in sorted(public_items, key=lambda item: item.score / item.maximum)
         if item.available and item.score < item.maximum
     ]
     if not screenshot_count:
-        suggestions.insert(
+        public_suggestions.insert(
             0,
             "Verify screenshots on the App Store; Apple's public iTunes API did not expose them.",
         )
-    suggestions = suggestions[:4]
+    public_suggestions = public_suggestions[:4]
+    if strategy is None:
+        return ListingHealth(
+            score=None,
+            label="Audit required",
+            items=[],
+            suggestions=public_suggestions,
+        )
+    items = [
+        _keyword_repetition_health_item(strategy),
+        _title_order_health_item(strategy),
+    ]
+    score = sum(item.score for item in items)
+    suggestions = _strategy_suggestions(strategy)
     label = "Strong" if score >= 80 else "Promising" if score >= 65 else "Needs attention"
     return ListingHealth(score=score, label=label, items=items, suggestions=suggestions)
+
+
+def _keyword_repetition_health_item(strategy: DistributionStrategyAnalysis) -> HealthItem:
+    repeated_uses = sum(item.total - 1 for item in strategy.duplicate_words)
+    score = max(0, 70 - repeated_uses * 15)
+    if strategy.duplicate_words:
+        repeated_terms = ", ".join(
+            f"{item.word} ({item.total} uses)" for item in strategy.duplicate_words[:4]
+        )
+        if len(strategy.duplicate_words) > 4:
+            repeated_terms += "…"
+        repetition_detail = f"{repeated_uses} extra repeated use(s): {repeated_terms}"
+    else:
+        repetition_detail = "No meaningful word is repeated across indexed fields"
+    return HealthItem(
+        "keyword_repetition",
+        "Keyword repetition",
+        score,
+        70,
+        repetition_detail + ".",
+    )
+
+
+def _title_order_health_item(strategy: DistributionStrategyAnalysis) -> HealthItem:
+    title_order = strategy.title_order.passed
+    score = 30 if title_order is True else 15 if title_order is None else 0
+    return HealthItem(
+        "title_order",
+        "Title order",
+        score,
+        30,
+        strategy.title_order.detail,
+    )
+
+
+def _strategy_suggestions(strategy: DistributionStrategyAnalysis) -> list[str]:
+    suggestions: list[str] = []
+    if strategy.duplicate_words:
+        words = ", ".join(item.word for item in strategy.duplicate_words[:4])
+        suggestions.append(f"Remove repeated meaningful keywords from indexed fields: {words}.")
+    if strategy.title_order.passed is False:
+        suggestions.append(
+            "Adjust the title order to match the selected ASO/SEO/AEO or UGC/Ads strategy."
+        )
+    if not suggestions:
+        suggestions.append(
+            "The strategy audit is aligned. Preserve the title order and avoid "
+            "repeating indexed terms."
+        )
+    return suggestions
 
 
 def _updated_detail(days: int) -> str:

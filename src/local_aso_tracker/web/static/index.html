@@ -12,21 +12,16 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand"><span class="brand-mark"><i></i><i></i><i></i></span><span>Local ASO</span></div>
       <nav class="toolkit" aria-label="Growth toolkit">
-        <p class="section-kicker">Growth toolkit</p>
         <button class="nav-item active" data-tab-target="rankings"><span class="nav-icon">↗</span>Rank tracking</button>
         <button class="nav-item" id="nicheNavButton"><span class="nav-icon niche-icon">⌕</span>Niche research</button>
-        <button class="nav-item" data-tab-target="health"><span class="nav-icon">✦</span>Listing health</button>
-        <button class="nav-item" data-tab-target="compare"><span class="nav-icon">⇄</span>Competitor view</button>
       </nav>
       <div class="apps-heading">
-        <div><h2>My apps</h2><p id="appCount">—</p></div>
+        <div><h2>My apps</h2></div>
         <button class="button button-small button-primary" id="addAppButton">+ Add app</button>
       </div>
       <div class="app-list" id="appList" aria-live="polite"></div>
       <div class="sidebar-foot">
-        <button class="setup-link" id="setupButton" disabled><span aria-hidden="true">⚙</span> Setup guide</button>
-        <span><i class="status-dot"></i>Local database connected</span>
-        <span>v0.5.0</span>
+        <button class="setup-link" id="setupButton" disabled aria-label="Open setup settings" title="Settings"><span aria-hidden="true">⚙</span></button>
       </div>
     </aside>
 
@@ -38,7 +33,7 @@
         </section>
 
         <section class="country-visibility" id="countryVisibility" aria-label="Top 10 keywords by storefront" hidden></section>
-        <div class="sync-indicator" id="syncIndicator" role="status" hidden><span class="sync-pulse"></span><span id="syncIndicatorText">Syncing all storefronts in the background…</span></div>
+        <div class="sync-indicator" id="syncIndicator" role="status" hidden><span class="sync-pulse"></span><span id="syncIndicatorText">Syncing stale keyword checks in the background…</span></div>
 
         <div class="tabs-bar">
           <div class="tabs" role="tablist" aria-label="App insights">
@@ -59,12 +54,12 @@
           <div class="metric-grid" id="metrics"></div>
           <section class="data-card card">
             <div class="data-head">
-              <div><p class="section-kicker">Search visibility</p><h2>Keyword rankings</h2></div>
+              <div><h2>Keyword rankings</h2></div>
               <label class="search-field"><span>⌕</span><input id="keywordFilter" type="search" placeholder="Filter keywords"></label>
             </div>
             <div class="table-scroll">
               <table class="rank-table">
-                <thead><tr><th>Keyword</th><th>Country</th><th>Device</th><th>Rank</th><th>Volume</th><th>Difficulty</th><th>Top 5</th><th>Change</th><th>Signal</th><th>Updated</th><th></th></tr></thead>
+                <thead id="rankingsHeader"><tr><th data-rank-sort-column="keyword" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="keyword">Keyword<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="country" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="country">Country<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="device" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="device">Device<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="rank" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="rank">Rank<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="volume" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="volume">Volume<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="difficulty" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="difficulty">Difficulty<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="top5" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="top5">Top 5<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="change" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="change">Change<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="signal" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="signal">Signal<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="updated" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="updated">Updated<span aria-hidden="true">↕</span></button></th><th></th></tr></thead>
                 <tbody id="rankingsBody"></tbody>
               </table>
             </div>
@@ -95,7 +90,7 @@
           <section class="card coverage-card" id="coverageCard"></section>
           <div class="health-layout">
             <section class="card health-score-card" id="healthScoreCard"></section>
-            <section class="card breakdown-card"><div class="data-head"><div><p class="section-kicker">Transparent heuristic</p><h2>Score breakdown</h2></div></div><div id="healthBreakdown"></div></section>
+            <section class="card breakdown-card"><div class="data-head"><div><p class="section-kicker">Saved strategy audit</p><h2>Score breakdown</h2></div></div><div id="healthBreakdown"></div></section>
           </div>
           <section class="card screenshot-card">
             <div class="data-head"><div><p class="section-kicker">Apple listing media</p><h2>Screenshot preview</h2></div><span class="availability-badge" id="screenshotAvailability">Checking…</span></div>
@@ -170,7 +165,6 @@
       <div class="onboarding-heading"><p class="section-kicker" id="onboardingStepLabel">Step 1 of 3</p><h2 id="onboardingTitle" tabindex="-1">A little setup. A clearer view.</h2><p id="onboardingIntro">Choose your app and storefront. Your workspace stays on this computer.</p></div>
 
       <section data-setup-step="0">
-        <div class="onboarding-tip"><span aria-hidden="true">↗</span><p><strong>No account or API keys needed.</strong> Track rankings using Apple’s public App Store search results. Your data stays in your local workspace.</p></div>
         <label class="field" id="onboardingExistingField" hidden><span>Use an app already in your workspace</span><select id="onboardingExistingApp"></select></label>
         <label class="field" id="onboardingAppIdField"><span>App Store link or app ID</span><input id="onboardingAppId" autocomplete="off" placeholder="https://apps.apple.com/…/id123456789"><small>Open your app’s App Store page and copy the link, or enter the number after “id”.</small></label>
         <label class="field"><span>First storefront</span><select id="onboardingCountry"></select><small>You can add more storefronts and switch between iPhone and iPad later.</small></label>
@@ -193,10 +187,10 @@
     </form>
   </dialog>
 
-  <dialog class="modal keyword-modal" id="keywordModal">
+  <dialog class="modal keyword-modal" id="keywordModal" aria-labelledby="keywordModalTitle" aria-describedby="keywordInputHelp">
     <form method="dialog" id="keywordForm">
-      <div class="modal-head"><div><p class="section-kicker">New tracking target</p><h2>Add keyword</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
-      <label class="field"><span>Keywords</span><textarea id="keywordInput" required rows="4" placeholder="learn astrology, birth chart, astrology course" autocomplete="off"></textarea><small>Separate keywords with commas or new lines. Duplicates are ignored.</small></label>
+      <div class="modal-head"><div><p class="section-kicker">New tracking target</p><h2 id="keywordModalTitle">Add keyword</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close add keyword dialog">×</button></div>
+      <label class="field"><span>Keywords</span><textarea id="keywordInput" required rows="4" placeholder="learn astrology, birth chart, astrology course" autocomplete="off"></textarea><small id="keywordInputHelp">Separate keywords with commas or new lines. Duplicates are ignored.</small></label>
       <div class="localize-bar">
         <div><strong>Search in local language</strong><small>Curated EN / FR / ES suggestions for each selected market.</small></div>
         <button type="button" class="button button-ghost" id="localizeKeywordsButton">✦ Localize selected</button>
@@ -208,29 +202,29 @@
     </form>
   </dialog>
 
-  <dialog class="modal" id="appModal">
+  <dialog class="modal" id="appModal" aria-labelledby="appModalTitle" aria-describedby="appModalDescription">
     <form method="dialog" id="appForm">
-      <div class="modal-head"><div><p class="section-kicker">Apple public lookup</p><h2>Add app</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
+      <div class="modal-head"><div><p class="section-kicker">Apple public lookup</p><h2 id="appModalTitle">Add app</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close add app dialog">×</button></div>
       <label class="field"><span>Numerical Apple app ID</span><input id="appleIdInput" required inputmode="numeric" pattern="[0-9]+" placeholder="6771773264" autocomplete="off"></label>
       <label class="field"><span>Lookup storefront</span><select id="appCountrySelect"></select></label>
-      <p class="modal-note">The name, bundle ID, artwork and listing details are retrieved directly from Apple. No private API is used.</p>
+      <p class="modal-note" id="appModalDescription">The name, bundle ID, artwork and listing details are retrieved directly from Apple. No private API is used.</p>
       <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="submit" value="default" class="button button-primary">Add from Apple</button></div>
     </form>
   </dialog>
 
-  <dialog class="modal confirm-modal" id="confirmModal">
+  <dialog class="modal confirm-modal" id="confirmModal" aria-labelledby="confirmModalTitle" aria-describedby="confirmModalDescription">
     <div class="confirm-content">
       <div class="empty-icon">×</div>
-      <h2>Stop tracking this keyword?</h2>
-      <p>The target will be deactivated, but all existing rank history will stay in your local database.</p>
+      <h2 id="confirmModalTitle">Stop tracking this keyword?</h2>
+      <p id="confirmModalDescription">The target will be deactivated, but all existing rank history will stay in your local database.</p>
       <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Keep tracking</button><button type="button" class="button button-danger" id="confirmDeactivateButton">Stop tracking</button></div>
     </div>
   </dialog>
 
-  <dialog class="modal confirm-modal" id="deleteAppModal">
+  <dialog class="modal confirm-modal" id="deleteAppModal" aria-labelledby="deleteAppModalTitle" aria-describedby="deleteAppMessage">
     <div class="confirm-content">
       <div class="empty-icon">×</div>
-      <h2>Remove this app?</h2>
+      <h2 id="deleteAppModalTitle">Remove this app?</h2>
       <p id="deleteAppMessage">The app will be hidden from this workspace. Its ranking targets and history will remain recoverable in the local database.</p>
       <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="button" class="button button-danger" id="confirmDeleteApp">Remove app</button></div>
     </div>
@@ -238,7 +232,7 @@
 
   <dialog class="modal metric-history-modal" id="metricHistoryModal" aria-labelledby="metricHistoryTitle">
     <div class="metric-history-content">
-      <div class="modal-head"><div><p class="section-kicker">Visibility evolution</p><h2 id="metricHistoryTitle">Rank history</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close">×</button></div>
+      <div class="modal-head"><div><p class="section-kicker">Visibility evolution</p><h2 id="metricHistoryTitle">Rank history</h2></div><button type="button" data-close-modal class="icon-button" aria-label="Close rank history dialog">×</button></div>
       <div class="metric-history-summary"><strong id="metricHistoryLatest">—</strong><span id="metricHistoryCaption">keywords</span><small id="metricHistoryPeriod"></small></div>
       <div id="metricHistoryChart" class="chart-wrap"></div>
       <p class="chart-methodology" id="metricHistoryMethodology"></p>

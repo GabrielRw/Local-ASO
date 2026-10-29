@@ -68,6 +68,10 @@ async def test_two_apps_share_one_keyword_country_request(session: Session) -> N
         (1, "Two"),
         (2, "One"),
     ]
+    assert [(item.average_rating, item.rating_count) for item in result.checks[0].top_apps] == [
+        (4.7, 20_000),
+        (4.5, 15_000),
+    ]
 
 
 @pytest.mark.asyncio

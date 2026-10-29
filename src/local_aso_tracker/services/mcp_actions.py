@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -16,6 +17,7 @@ from local_aso_tracker.repositories.data import (
 from local_aso_tracker.repositories.data import (
     add_keyword,
     add_target,
+    filter_targets_due_for_check,
     list_targets,
     normalize_keyword,
 )
@@ -210,12 +212,18 @@ def run_rank_checks(
                 f"selection requires {searches} Apple searches; "
                 f"the limit is {MAX_CHECK_SEARCHES_PER_CALL}. Use narrower filters."
             )
-        result = run_checks(session, selected, settings)
+        due_targets, skipped = filter_targets_due_for_check(
+            session,
+            selected,
+            cutoff=datetime.now(UTC) - timedelta(hours=24),
+        )
+        result = run_checks(session, due_targets, settings)
         return {
             "checks": len(result.checks),
             "searches": result.searches,
             "failures": result.failures,
             "targetsSelected": len(selected),
+            "targetsSkipped": skipped,
         }
 
 

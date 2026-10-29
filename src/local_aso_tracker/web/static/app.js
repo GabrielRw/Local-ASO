@@ -5,6 +5,8 @@ const state = {
   device: "iphone",
   tab: "rankings",
   filter: "",
+  rankSortField: "rank",
+  rankSortDirection: "asc",
   selectedTarget: null,
   pendingDeactivateTarget: null,
   pendingDeleteApp: null,
@@ -13,6 +15,11 @@ const state = {
   coverageCountry: null,
   coverageDraft: null,
   coverageAnalysis: null,
+  coverageStrategy: null,
+  coverageGoal: null,
+  coverageBrand: "",
+  coverageSaveTimer: null,
+  coverageSaveRevision: 0,
   niche: null,
   nicheLoaded: false,
   nicheView: false,
@@ -29,12 +36,21 @@ const state = {
   competitorMatrixLoaded: false,
   competitorMatrixLoading: false,
   pendingTopApp: null,
+  checkingTargets: new Set(),
+  queuedCheckTargets: new Set(),
+  checkInProgress: false,
 };
 
 const el = (selector) => document.querySelector(selector);
 const all = (selector) => [...document.querySelectorAll(selector)];
+const customSelects = new WeakMap();
+let activeCustomSelect = null;
+let customSelectSequence = 0;
+let customSelectRefreshFrame = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
+  refreshCustomSelects();
+  observeDynamicSelects();
   bindEvents();
   loadDashboard();
 });
@@ -57,6 +73,7 @@ function bindEvents() {
     if (state.coverageStep === 3) {
       state.coverageStep = 2;
       state.coverageAnalysis = null;
+      state.coverageStrategy = null;
     }
     el("#keywordFilter").value = "";
     renderHero();
@@ -70,6 +87,7 @@ function bindEvents() {
     state.filter = event.target.value.trim().toLowerCase();
     renderRankings();
   });
+  el("#rankingsHeader").addEventListener("click", rankingHeaderClick);
   el("#metrics").addEventListener("click", metricCardClick);
   el("#runCheckButton").addEventListener("click", runCheck);
   el("#addKeywordButton").addEventListener("click", openKeywordModal);
@@ -96,13 +114,31 @@ function bindEvents() {
   el("#countryVisibility").addEventListener("click", countryVisibilityClick);
   el("#appleAdsContent").addEventListener("click", appleAdsAction);
   el("#appleAdsContent").addEventListener("change", appleAdsChange);
-  window.addEventListener("resize", hideTopAppTooltip);
-  window.addEventListener("scroll", hideTopAppTooltip, true);
+  window.addEventListener("resize", () => {
+    hideTopAppTooltip();
+    closeCustomSelect();
+  });
+  window.addEventListener("scroll", (event) => {
+    hideTopAppTooltip();
+    if (!(event.target instanceof Element) || !event.target.closest(".custom-select-menu")) {
+      closeCustomSelect();
+    }
+  }, true);
   document.addEventListener("pointerdown", (event) => {
     if (!el("#topAppMenu").hidden && !event.target.closest("#topAppMenu") && !event.target.closest(".top-app-preview")) hideTopAppMenu();
+    if (
+      activeCustomSelect
+      && !event.target.closest(".custom-select")
+      && !event.target.closest(".custom-select-menu")
+    ) {
+      closeCustomSelect({ restoreFocus: false });
+    }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideTopAppMenu();
+    if (event.key === "Escape") {
+      hideTopAppMenu();
+      closeCustomSelect({ restoreFocus: true });
+    }
   });
   all("[data-tab], [data-tab-target]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -130,6 +166,243 @@ function bindEvents() {
       dialog.close();
     });
   });
+}
+
+function observeDynamicSelects() {
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => cleanupRemovedSelects(mutation.removedNodes));
+    const relevant = mutations.some((mutation) => {
+      if (mutation.target instanceof HTMLSelectElement) return true;
+      return [...mutation.addedNodes].some((node) => (
+        node instanceof Element
+        && (node.matches("select") || Boolean(node.querySelector("select")))
+      ));
+    });
+    if (relevant) scheduleCustomSelectRefresh();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function cleanupRemovedSelects(nodes) {
+  [...nodes].forEach((node) => {
+    if (!(node instanceof Element)) return;
+    const removed = node.matches("select") ? [node] : [...node.querySelectorAll("select")];
+    removed.forEach((select) => {
+      const instance = customSelects.get(select);
+      if (!instance) return;
+      if (activeCustomSelect === instance) closeCustomSelect();
+      instance.menu.remove();
+    });
+  });
+}
+
+function scheduleCustomSelectRefresh() {
+  if (customSelectRefreshFrame) return;
+  customSelectRefreshFrame = window.requestAnimationFrame(() => {
+    customSelectRefreshFrame = 0;
+    refreshCustomSelects();
+  });
+}
+
+function refreshCustomSelects(root = document) {
+  if (activeCustomSelect && !activeCustomSelect.trigger.isConnected) closeCustomSelect();
+  root.querySelectorAll("select").forEach((select) => {
+    if (!customSelects.has(select)) enhanceSelect(select);
+    else syncCustomSelect(select);
+  });
+}
+
+function enhanceSelect(select) {
+  if (customSelects.has(select) || select.closest(".custom-select")) return;
+  const label = select.closest("label");
+  const labelText = select.getAttribute("aria-label")
+    || label?.querySelector(":scope > span")?.textContent?.trim()
+    || label?.querySelector(":scope > .field > span")?.textContent?.trim()
+    || "Choose an option";
+  const wrapper = document.createElement("span");
+  wrapper.className = "custom-select";
+  select.parentNode.insertBefore(wrapper, select);
+  wrapper.appendChild(select);
+  select.classList.add("custom-select-native");
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "custom-select-trigger";
+  trigger.setAttribute("role", "combobox");
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-label", labelText);
+  trigger.innerHTML = `<span class="custom-select-value"></span><span class="custom-select-chevron" aria-hidden="true"></span>`;
+  wrapper.appendChild(trigger);
+
+  const menu = document.createElement("div");
+  menu.className = "custom-select-menu";
+  menu.hidden = true;
+  menu.id = `custom-select-menu-${++customSelectSequence}`;
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-label", labelText);
+  trigger.setAttribute("aria-controls", menu.id);
+
+  const instance = { select, wrapper, trigger, menu, labelText };
+  customSelects.set(select, instance);
+  trigger.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleCustomSelect(instance);
+  });
+  trigger.addEventListener("keydown", (event) => handleCustomSelectTriggerKeydown(event, instance));
+  menu.addEventListener("click", (event) => handleCustomSelectMenuClick(event, instance));
+  menu.addEventListener("keydown", (event) => handleCustomSelectMenuKeydown(event, instance));
+  select.addEventListener("change", () => syncCustomSelect(select));
+  const optionObserver = new MutationObserver(scheduleCustomSelectRefresh);
+  optionObserver.observe(select, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["disabled"],
+  });
+  const dialog = select.closest("dialog");
+  if (dialog && !dialog.dataset.customSelectBound) {
+    dialog.dataset.customSelectBound = "true";
+    dialog.addEventListener("close", () => closeCustomSelect());
+  }
+  syncCustomSelect(select);
+}
+
+function syncCustomSelect(select) {
+  const instance = customSelects.get(select);
+  if (!instance) return;
+  const selected = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+  const valueText = selected?.textContent?.replace(/\s+/g, " ").trim() || "Select an option";
+  instance.trigger.querySelector(".custom-select-value").textContent = valueText;
+  instance.trigger.disabled = select.disabled || !select.options.length;
+  instance.trigger.classList.toggle("is-empty", !selected);
+  if (!activeCustomSelect || activeCustomSelect !== instance) {
+    renderCustomSelectMenu(instance);
+    return;
+  }
+  renderCustomSelectMenu(instance);
+  positionCustomSelect(instance);
+}
+
+function renderCustomSelectMenu(instance) {
+  const { select, menu } = instance;
+  const selectedIndex = select.selectedIndex;
+  const options = [...select.options].map((option, index) => {
+    const selected = index === selectedIndex;
+    const disabled = option.disabled || option.parentElement?.disabled;
+    const label = option.dataset.selectLabel || option.textContent.replace(/\s+/g, " ").trim();
+    return `<button type="button" class="custom-select-option ${selected ? "selected" : ""}" data-option-index="${index}" role="option" aria-selected="${selected}" tabindex="-1" ${disabled ? "disabled" : ""}><span class="custom-select-option-label">${escapeHtml(label)}</span><span class="custom-select-option-check" aria-hidden="true">✓</span></button>`;
+  }).join("");
+  menu.innerHTML = options || `<p class="custom-select-empty">No options available</p>`;
+}
+
+function toggleCustomSelect(instance) {
+  if (activeCustomSelect === instance) {
+    closeCustomSelect();
+    return;
+  }
+  closeCustomSelect();
+  const host = instance.select.closest("dialog") || document.body;
+  host.appendChild(instance.menu);
+  instance.menu.hidden = false;
+  instance.trigger.setAttribute("aria-expanded", "true");
+  activeCustomSelect = instance;
+  renderCustomSelectMenu(instance);
+  positionCustomSelect(instance);
+  const chosen = instance.menu.querySelector(`.custom-select-option.selected:not(:disabled)`)
+    || instance.menu.querySelector(".custom-select-option:not(:disabled)");
+  focusCustomSelectOption(instance, chosen);
+}
+
+function closeCustomSelect({ restoreFocus = false } = {}) {
+  if (!activeCustomSelect) return;
+  const instance = activeCustomSelect;
+  activeCustomSelect = null;
+  instance.menu.hidden = true;
+  instance.trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus) instance.trigger.focus({ preventScroll: true });
+}
+
+function positionCustomSelect(instance) {
+  const { trigger, menu } = instance;
+  const rect = trigger.getBoundingClientRect();
+  const edge = 12;
+  const gap = 6;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = document.documentElement.clientHeight;
+  const width = Math.min(Math.max(rect.width, 192), viewportWidth - edge * 2);
+  const below = viewportHeight - rect.bottom - edge;
+  const above = rect.top - edge;
+  const opensUp = below < 168 && above > below;
+  const available = Math.max(128, (opensUp ? above : below) - gap);
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.min(Math.max(rect.left, edge), viewportWidth - width - edge)}px`;
+  menu.style.top = `${opensUp ? Math.max(edge, rect.top - Math.min(available, 320) - gap) : rect.bottom + gap}px`;
+  menu.style.maxHeight = `${Math.min(320, available)}px`;
+  menu.classList.toggle("opens-up", opensUp);
+}
+
+function handleCustomSelectTriggerKeydown(event, instance) {
+  if (!["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  if (activeCustomSelect !== instance) toggleCustomSelect(instance);
+  const options = [...instance.menu.querySelectorAll(".custom-select-option:not(:disabled)")];
+  const target = event.key === "ArrowUp" ? options.at(-1) : options[0];
+  focusCustomSelectOption(instance, target);
+}
+
+function handleCustomSelectMenuClick(event, instance) {
+  const option = event.target.closest("[data-option-index]");
+  if (!option || option.disabled) return;
+  chooseCustomSelectOption(instance, Number(option.dataset.optionIndex));
+}
+
+function handleCustomSelectMenuKeydown(event, instance) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeCustomSelect({ restoreFocus: true });
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  const options = [...instance.menu.querySelectorAll(".custom-select-option:not(:disabled)")];
+  const current = options.indexOf(document.activeElement);
+  if (event.key === "Enter" || event.key === " ") {
+    if (document.activeElement?.dataset.optionIndex != null) {
+      chooseCustomSelectOption(instance, Number(document.activeElement.dataset.optionIndex));
+    }
+    return;
+  }
+  let next = current;
+  if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = options.length - 1;
+  else next = current < 0 ? 0 : (current + (event.key === "ArrowUp" ? -1 : 1) + options.length) % options.length;
+  focusCustomSelectOption(instance, options[next]);
+}
+
+function focusCustomSelectOption(instance, option) {
+  if (!option) return;
+  option.focus({ preventScroll: true });
+  const optionRect = option.getBoundingClientRect();
+  const menuRect = instance.menu.getBoundingClientRect();
+  if (optionRect.top < menuRect.top + 4) {
+    instance.menu.scrollTop -= menuRect.top - optionRect.top + 4;
+  } else if (optionRect.bottom > menuRect.bottom - 4) {
+    instance.menu.scrollTop += optionRect.bottom - menuRect.bottom + 4;
+  }
+  option.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function chooseCustomSelectOption(instance, index) {
+  const option = instance.select.options[index];
+  if (!option || option.disabled) return;
+  closeCustomSelect({ restoreFocus: true });
+  instance.select.selectedIndex = index;
+  instance.select.dispatchEvent(new Event("change", { bubbles: true }));
+  syncCustomSelect(instance.select);
 }
 
 async function loadDashboard({ quiet = false } = {}) {
@@ -173,7 +446,7 @@ function monitorAutomaticSync() {
       if (sync.state === "running") {
         state.syncWasRunning = true;
         el("#syncIndicator").hidden = false;
-        el("#syncIndicatorText").textContent = "Syncing every active keyword across all storefronts…";
+        el("#syncIndicatorText").textContent = "Syncing keywords that have not been checked in the last 24 hours…";
         monitorAutomaticSync();
         return;
       }
@@ -182,7 +455,7 @@ function monitorAutomaticSync() {
         state.syncWasRunning = false;
         await loadDashboard({ quiet: true });
         if (sync.state === "error") toast(`Automatic sync failed: ${sync.error || "unknown error"}`, true);
-        else toast(`Automatic sync complete: ${sync.searches || 0} searches${sync.failures ? `, ${sync.failures} failed` : ""}.`, Boolean(sync.failures));
+        else toast(`Automatic sync complete: ${sync.searches || 0} searches${sync.failures ? `, ${sync.failures} failed` : ""}${sync.skipped ? `, ${sync.skipped} skipped as fresh` : ""}.`, Boolean(sync.failures));
       }
     } catch {
       state.syncPollTimer = window.setTimeout(monitorAutomaticSync, 15000);
@@ -193,7 +466,6 @@ function monitorAutomaticSync() {
 function renderSidebar() {
   el("#setupButton").disabled = false;
   const apps = (state.data.apps || []).filter((app) => app.active);
-  el("#appCount").textContent = `${apps.length} local app${apps.length === 1 ? "" : "s"}`;
   el("#appList").innerHTML = apps.map((app, index) => {
     const selected = app.appleAppId === state.appId;
     const icon = app.artworkUrl
@@ -258,9 +530,14 @@ async function confirmDeleteApp() {
 
 function renderCountryControls() {
   const countries = (state.data.countries || []).filter((country) => country.active);
-  const options = countries.map((country) => `<option value="${country.code}" ${country.code === state.country ? "selected" : ""}>${countryFlag(country.code)} ${country.code.toUpperCase()} · ${escapeHtml(country.name)}</option>`).join("");
-  el("#countrySelect").innerHTML = options;
-  el("#appCountrySelect").innerHTML = options;
+  const compactOptions = countries.map((country) => {
+    const shortLabel = `${countryFlag(country.code)} ${country.code.toUpperCase()}`;
+    const menuLabel = `${shortLabel} · ${country.name}`;
+    return `<option value="${country.code}" data-select-label="${escapeAttr(menuLabel)}" ${country.code === state.country ? "selected" : ""}>${shortLabel}</option>`;
+  }).join("");
+  const fullOptions = countries.map((country) => `<option value="${country.code}" ${country.code === state.country ? "selected" : ""}>${countryFlag(country.code)} ${country.code.toUpperCase()} · ${escapeHtml(country.name)}</option>`).join("");
+  el("#countrySelect").innerHTML = compactOptions;
+  el("#appCountrySelect").innerHTML = fullOptions;
   el("#deviceSelect").value = state.device;
   el("#countryChecks").innerHTML = countries.map((country) => `<label class="country-check"><input type="checkbox" name="country" value="${country.code}" ${country.code === state.country ? "checked" : ""}><span>${countryFlag(country.code)} <strong>${country.code.toUpperCase()}</strong> · ${escapeHtml(country.name)}</span></label>`).join("");
 }
@@ -328,6 +605,8 @@ function renderHero() {
     return;
   }
   const health = state.data.health;
+  const auditConfigured = keywordCoverageConfigured();
+  const scoreAvailable = auditConfigured && health?.score != null;
   const updated = listing.updatedAt ? relativeDate(listing.updatedAt) : "No update date";
   const ratingLabel = listing.ratingCount === 1 ? "rating" : "ratings";
   const rating = listing.averageRating ? `${listing.averageRating.toFixed(1)} (${formatCompact(listing.ratingCount)} ${ratingLabel})` : "No rating yet";
@@ -337,9 +616,9 @@ function renderHero() {
     <div class="hero-stat"><span>Version</span><strong>${escapeHtml(listing.version || "—")}</strong></div>
     <div class="hero-stat optional"><span>Size</span><strong>${formatBytes(listing.fileSizeBytes)}</strong></div>
     <div class="hero-stat optional"><span>Price</span><strong>${escapeHtml(listing.price || "—")}</strong></div>
-    <button class="score-ring" style="--score:${health?.score || 0}" id="heroHealthButton" aria-label="Open listing health"><strong>${health?.score ?? "—"}</strong></button>
+    <button class="score-ring ${scoreAvailable ? "" : "score-ring-setup"}" style="--score:${scoreAvailable ? health.score : 0}" id="heroHealthButton" aria-label="${scoreAvailable ? "Open listing strategy audit" : "Complete the listing audit to unlock the score"}"><strong>${scoreAvailable ? health.score : "Audit"}</strong></button>
   </div>
-  <div class="hero-foot"><div class="hero-foot-group"><span>★ ${escapeHtml(rating)}</span><span>${escapeHtml(updated)}</span><span>↻ Apple public data</span></div><div class="hero-foot-group"><span>${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)} rankings</span>${listing.url ? `<a href="${escapeAttr(listing.url)}" target="_blank" rel="noreferrer">View on App Store ↗</a>` : ""}</div></div>`;
+  <div class="hero-foot"><div class="hero-foot-group"><span>★ ${escapeHtml(rating)}</span><span>${escapeHtml(updated)}</span></div><div class="hero-foot-group"><span>${countryFlag(state.country)} ${state.country.toUpperCase()} · ${deviceName(state.device)} rankings</span>${listing.url ? `<a href="${escapeAttr(listing.url)}" target="_blank" rel="noreferrer">View on App Store ↗</a>` : ""}</div></div>`;
   el("#heroHealthButton")?.addEventListener("click", () => switchTab("health"));
 }
 
@@ -410,9 +689,76 @@ function countryRows() {
   return (state.data.rankings || []).filter((row) => row.country === state.country && row.device === state.device);
 }
 
+function rankingHeaderClick(event) {
+  const button = event.target.closest("[data-rank-sort]");
+  if (!button) return;
+  const field = button.dataset.rankSort;
+  if (state.rankSortField === field) {
+    state.rankSortDirection = state.rankSortDirection === "asc" ? "desc" : "asc";
+  } else {
+    state.rankSortField = field;
+    state.rankSortDirection = "asc";
+  }
+  renderRankings();
+}
+
+function rankingSortValue(row, field) {
+  if (field === "keyword") return row.keyword.toLocaleLowerCase();
+  if (field === "country") return row.country;
+  if (field === "device") return row.device;
+  if (field === "rank") return row.rank ?? null;
+  if (field === "volume") return row.volumeEstimate ?? null;
+  if (field === "difficulty") return row.difficultyEstimate ?? null;
+  if (field === "top5") return (row.topApps || []).map((app) => app.name).join(" ").toLocaleLowerCase();
+  if (field === "change") {
+    if (row.change === "NEW") return Number.POSITIVE_INFINITY;
+    if (row.change === "LOST") return Number.NEGATIVE_INFINITY;
+    const value = Number.parseFloat(row.change);
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (field === "signal") return row.opportunity.toLocaleLowerCase();
+  if (field === "updated") return new Date(row.checkedAt).getTime();
+  return row.keyword.toLocaleLowerCase();
+}
+
+function sortRankingRows(rows) {
+  const field = state.rankSortField;
+  const direction = state.rankSortDirection === "desc" ? -1 : 1;
+  return [...rows].sort((left, right) => {
+    const leftValue = rankingSortValue(left, field);
+    const rightValue = rankingSortValue(right, field);
+    if (leftValue == null && rightValue == null) return left.keyword.localeCompare(right.keyword);
+    if (leftValue == null) return 1;
+    if (rightValue == null) return -1;
+    const comparison = typeof leftValue === "number"
+      ? leftValue - rightValue
+      : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
+    return comparison === 0
+      ? left.keyword.localeCompare(right.keyword)
+      : comparison * direction;
+  });
+}
+
+function updateRankSortHeaders() {
+  all("#rankingsHeader [data-rank-sort-column]").forEach((cell) => {
+    const field = cell.dataset.rankSortColumn;
+    const active = field === state.rankSortField;
+    const direction = active ? state.rankSortDirection : null;
+    cell.setAttribute("aria-sort", direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none");
+    const button = cell.querySelector("[data-rank-sort]");
+    if (!button) return;
+    button.classList.toggle("active", active);
+    button.querySelector("span").textContent = direction === "asc" ? "↑" : direction === "desc" ? "↓" : "↕";
+    button.title = active
+      ? `Sort ${button.textContent.replace(/[↕↑↓]/g, "").trim()} ${direction === "asc" ? "descending" : "ascending"}`
+      : `Sort by ${button.textContent.replace(/[↕↑↓]/g, "").trim()}`;
+  });
+}
+
 function renderRankings() {
   if (!state.data) return;
-  const rows = filteredRows().sort((a, b) => (a.rank ?? 9999) - (b.rank ?? 9999));
+  const rows = sortRankingRows(filteredRows());
+  updateRankSortHeaders();
   const metricRows = countryRows();
   const found = metricRows.filter((row) => row.found && row.rank != null);
   const ranks = found.map((row) => row.rank);
@@ -438,9 +784,17 @@ function renderRankings() {
     const signalClass = row.opportunity.startsWith("Defend") ? "defend" : row.opportunity.includes("Growth") ? "growth" : row.opportunity.includes("visible") ? "absent" : "";
     const volumeTone = row.volumeEstimate == null ? "" : row.volumeEstimate >= 35 ? " volume-strong" : row.volumeEstimate >= 15 ? " volume-mid" : " volume-low";
     const difficultyTone = row.difficultyEstimate == null ? "" : row.difficultyEstimate >= 67 ? " difficulty-hard" : row.difficultyEstimate >= 34 ? " difficulty-mid" : " difficulty-low";
-    return `<tr data-target-id="${row.targetId}" class="${row.targetId === state.selectedTarget ? "selected" : ""}">
+    const checkState = state.checkingTargets.has(row.targetId) ? "checking" : state.queuedCheckTargets.has(row.targetId) ? "queued" : "";
+    const rankMarkup = checkState === "checking"
+      ? `<span class="row-check-state checking"><i></i>Checking</span>`
+      : checkState === "queued"
+        ? `<span class="row-check-state queued">Queued</span>`
+        : row.status === "error"
+          ? `<span class="row-check-state error" title="${escapeAttr(row.error || "Apple check failed")}">Check failed</span>`
+          : `<span class="rank-number ${row.rank && row.rank <= 10 ? "top" : ""}">${row.found ? `#${row.rank}` : `>${row.resultLimit}`}</span>`;
+    return `<tr data-target-id="${row.targetId}" class="${row.targetId === state.selectedTarget ? "selected" : ""} ${checkState ? `row-${checkState}` : ""}">
       <td class="keyword-cell" title="${escapeAttr(row.keyword)}">${escapeHtml(row.keyword)}</td><td class="country-cell"><span class="country-badge">${countryFlag(row.country)} ${row.country.toUpperCase()}</span></td><td class="device-cell"><span class="device-badge ${escapeAttr(row.device)}">${deviceIcon(row.device)} ${deviceName(row.device)}</span></td>
-      <td class="rank-cell"><span class="rank-number ${row.rank && row.rank <= 10 ? "top" : ""}">${row.found ? `#${row.rank}` : `>${row.resultLimit}`}</span></td>
+      <td class="rank-cell">${rankMarkup}</td>
       <td class="estimate-cell volume-cell${volumeTone}">${estimateCell(row.volumeEstimate, "volume", row.estimateSampleSize)}</td>
       <td class="estimate-cell difficulty-cell${difficultyTone}">${estimateCell(row.difficultyEstimate, "difficulty", row.estimateSampleSize)}</td>
       <td class="top-apps-cell">${topAppsCell(row.topApps)}</td>
@@ -616,10 +970,15 @@ function renderHistory() {
 }
 
 function resetCoverage() {
+  window.clearTimeout(state.coverageSaveTimer);
+  state.coverageSaveRevision += 1;
   state.coverageStep = 1;
   state.coverageCountry = null;
   state.coverageDraft = null;
   state.coverageAnalysis = null;
+  state.coverageStrategy = null;
+  state.coverageGoal = null;
+  state.coverageBrand = "";
 }
 
 function renderListingCoverage() {
@@ -628,48 +987,64 @@ function renderListingCoverage() {
     card.innerHTML = `<div class="empty-state"><h3>Choose an app to analyse listing coverage.</h3></div>`;
     return;
   }
+  const savedMetadata = state.data.listingMetadata;
+  if (!state.coverageGoal) {
+    state.coverageGoal = savedMetadata?.channelGoal || "aso_seo_aeo";
+  }
+  if (!state.coverageBrand) {
+    state.coverageBrand = savedMetadata?.brandTerm || inferCoverageBrand(savedMetadata?.name || state.data.listing.name || "");
+  }
   if (!state.coverageCountry) state.coverageCountry = state.country;
   if (state.coverageStep >= 2 && !state.coverageDraft) {
-    const saved = state.data.listingMetadata;
     state.coverageDraft = {
-      name: saved?.name || state.data.listing.name || "",
-      subtitle: saved?.subtitle || "",
-      keywords: saved?.keywords || "",
+      name: savedMetadata?.name || state.data.listing.name || "",
+      subtitle: savedMetadata?.subtitle || "",
+      keywords: savedMetadata?.keywords || "",
     };
   }
-  const progress = [1, 2, 3].map((step) => `<li class="${state.coverageStep === step ? "current" : state.coverageStep > step ? "complete" : ""}"><span>${state.coverageStep > step ? "✓" : step}</span>${["Storefront", "Listing metadata", "Coverage"][step - 1]}</li>`).join("");
+  const progress = [1, 2, 3].map((step) => `<li class="${state.coverageStep === step ? "current" : state.coverageStep > step ? "complete" : ""}"><span>${state.coverageStep > step ? "✓" : step}</span>${["Goal & market", "Listing metadata", "Strategy audit"][step - 1]}</li>`).join("");
   let body = "";
   if (state.coverageStep === 1) {
     const options = (state.data.countries || []).filter((country) => country.active).map((country) => `<option value="${country.code}" ${country.code === state.coverageCountry ? "selected" : ""}>${countryFlag(country.code)} ${country.code.toUpperCase()} · ${escapeHtml(country.name)}</option>`).join("");
-    body = `<div class="coverage-intro"><div class="coverage-step-number">1</div><div><h3>Choose your main listing storefront</h3><p>Select the market where this localized listing is published. We’ll load its public App Store name next.</p></div></div>
-      <label class="field coverage-country-field"><span>Main listing storefront</span><select id="coverageCountrySelect">${options}</select></label>
-      <div class="coverage-actions"><button type="button" class="button button-primary" id="coverageLoadButton">Load listing data</button></div>`;
+    body = `<div class="coverage-setup">
+      <div class="coverage-setup-copy"><p class="section-kicker">Step 1 · Strategy</p><h3>What is your primary growth strategy?</h3><p>Choose how discovery should influence the title and the terms you prioritize.</p></div>
+      <div class="coverage-goal-list" role="radiogroup" aria-label="Primary distribution strategy">
+        ${coverageGoalOption("aso_seo_aeo", "ASO / SEO / AEO", "Lead with a generic keyword phrase, then close with the brand.", "Discovery-led")}
+        ${coverageGoalOption("ugc_ads", "UGC / Ads", "Lead with the brand and prioritize ranking for branded searches.", "Brand-led")}
+      </div>
+      <div class="coverage-setup-fields">
+        <label class="field"><span>Brand term or branded phrase</span><input id="coverageBrandTerm" maxlength="255" required value="${escapeAttr(state.coverageBrand)}" placeholder="AstroLingo"><small>Used only to verify title ordering. Punctuation and case are ignored.</small></label>
+        <label class="field coverage-country-field"><span>Main listing storefront</span><select id="coverageCountrySelect">${options}</select></label>
+      </div>
+      <div class="coverage-actions"><button type="button" class="button button-primary" id="coverageLoadButton">Continue to metadata</button></div>`;
   } else if (state.coverageStep === 2) {
     const draft = state.coverageDraft;
-    body = `<div class="coverage-intro"><div class="coverage-step-number">2</div><div><h3>Review the listing metadata</h3><p>Apple’s public API supplies the app name. Subtitle and keyword field are not exposed publicly, so paste them from App Store Connect. They stay in your local SQLite database.</p></div></div>
+    body = `<div class="coverage-intro"><div class="coverage-step-number">2</div><div><h3>Review the indexed listing fields</h3><p>Apple’s public API supplies the app name. Subtitle and keyword field are not exposed publicly, so paste them from App Store Connect. They stay in your local SQLite database.</p></div><span class="coverage-goal-badge">${escapeHtml(state.coverageGoal === "ugc_ads" ? "UGC / Ads" : "ASO / SEO / AEO")}</span></div>
       <form id="coverageForm" class="coverage-form">
         <label class="field"><span class="coverage-field-label">Name <small id="coverageNameCount">${draft.name.length}/30</small></span><input id="coverageName" maxlength="30" required value="${escapeAttr(draft.name)}"></label>
         <label class="field"><span class="coverage-field-label">Subtitle <small id="coverageSubtitleCount">${draft.subtitle.length}/30</small></span><input id="coverageSubtitle" maxlength="30" value="${escapeAttr(draft.subtitle)}" placeholder="Paste the localized subtitle"></label>
         <label class="field"><span class="coverage-field-label">Keyword field <small id="coverageKeywordsCount">${draft.keywords.length}/100</small></span><input id="coverageKeywords" maxlength="100" value="${escapeAttr(draft.keywords)}" placeholder="keyword one, keyword two, keyword three"><small>Comma-separated. This is the App Store keyword field, not Apple search volume.</small></label>
-        <div class="coverage-actions"><button type="button" class="button button-ghost" id="coverageBackButton">Back</button><button type="submit" class="button button-primary" id="coverageAnalyzeButton">Analyse coverage</button></div>
+        <div class="coverage-actions"><button type="button" class="button button-ghost" id="coverageBackButton">Back</button><button type="submit" class="button button-primary" id="coverageAnalyzeButton">Analyse strategy</button></div>
       </form>`;
   } else {
     const analysis = state.coverageAnalysis;
+    const strategy = state.coverageStrategy;
     const matches = analysis.matched || [];
-    body = `<div class="coverage-intro"><div class="coverage-step-number">3</div><div><h3>Listing keyword coverage</h3><p>${escapeHtml(state.coverageDraft.name)} · ${countryFlag(state.coverageCountry)} ${escapeHtml(state.coverageCountry.toUpperCase())} · ${deviceName(state.device)}</p></div></div>
-      <div class="coverage-summary">
-        <div><span>Targeted terms</span><strong>${analysis.target_terms}</strong><small>${analysis.keyword_field_terms} keyword-field entries</small></div>
-        <div><span>Tracked in listing</span><strong>${analysis.tracked_matches}</strong><small>keywords found in metadata</small></div>
-        <div><span>Already ranking</span><strong>${analysis.ranked_keywords}</strong><small>with a returned position</small></div>
-        <div><span>Not ranking</span><strong>${analysis.unranked_keywords}</strong><small>outside the result window</small></div>
-      </div>
-      <div class="coverage-terms"><strong>Keyword field</strong><div>${analysis.keyword_field_entries.length ? analysis.keyword_field_entries.map((term) => `<span>${escapeHtml(term)}</span>`).join("") : "No keyword field entries."}</div></div>
-      <div class="coverage-matched"><strong>Tracked keyword matches</strong>${matches.length ? matches.map((item) => `<div class="coverage-match ${item.found ? "ranked" : "unranked"}"><span>${escapeHtml(item.keyword)}</span><small>${item.sources.map(escapeHtml).join(" · ")}</small><b>${item.found ? `#${item.rank}` : `>${item.result_limit}`}</b></div>`).join("") : `<p>No currently tracked keywords appear in this metadata.</p>`}</div>
+    body = `<div class="coverage-intro"><div class="coverage-step-number">3</div><div><h3>Listing strategy audit</h3><p>${escapeHtml(strategy.goal_label)} · ${countryFlag(state.coverageCountry)} ${escapeHtml(state.coverageCountry.toUpperCase())} · ${deviceName(state.device)}</p></div><span class="coverage-goal-badge" id="coverageSaveStatus">Saved</span></div>
+      ${coverageLiveForm(state.coverageDraft, strategy)}
+      <div id="coverageLiveResults">${coverageResultsMarkup(analysis, strategy)}</div>
       <div class="coverage-actions"><button type="button" class="button button-ghost" id="coverageEditButton">Edit metadata</button></div>`;
   }
-  card.innerHTML = `<div class="coverage-head"><div><p class="section-kicker">Listing audit</p><h2>Keyword coverage</h2><p>Compare the metadata you plan to target with keywords already tracked for this app.</p></div></div><ol class="coverage-progress">${progress}</ol>${body}`;
+  card.innerHTML = `<div class="coverage-head"><div><h2>Keyword coverage</h2><p>Compare the metadata you plan to target with keywords already tracked for this app.</p></div></div><ol class="coverage-progress">${progress}</ol>${body}`;
   if (state.coverageStep === 1) {
-    el("#coverageLoadButton").addEventListener("click", loadCoverageListing);
+    el("#coverageLoadButton").addEventListener("click", continueCoverageGoal);
+    all('input[name="coverageGoal"]').forEach((input) => {
+      input.addEventListener("change", () => {
+        all(".coverage-goal-option").forEach((option) => {
+          option.classList.toggle("selected", Boolean(option.querySelector("input:checked")));
+        });
+      });
+    });
   } else if (state.coverageStep === 2) {
     el("#coverageBackButton").addEventListener("click", () => {
       state.coverageStep = 1;
@@ -680,11 +1055,229 @@ function renderListingCoverage() {
     bindCoverageCounter("#coverageSubtitle", "#coverageSubtitleCount");
     bindCoverageCounter("#coverageKeywords", "#coverageKeywordsCount");
   } else {
+    bindLiveCoverageEditor();
     el("#coverageEditButton").addEventListener("click", () => {
+      window.clearTimeout(state.coverageSaveTimer);
+      syncCoverageDraftFromLiveForm();
       state.coverageStep = 2;
       renderListingCoverage();
     });
   }
+}
+
+function coverageLiveForm(draft, strategy) {
+  const context = coverageHighlightContext(
+    draft.name,
+    draft.subtitle,
+    draft.keywords,
+    strategy.brand_term || state.coverageBrand,
+  );
+  return `<form id="coverageLiveForm" class="coverage-form coverage-live-form">
+    <label class="field coverage-token-field"><span class="coverage-field-label">Name <small id="coverageLiveNameCount">${draft.name.length}/30</small></span><span class="coverage-token-shell"><span class="coverage-token-mirror" id="coverageLiveNameMirror" aria-hidden="true">${coverageFieldHighlightMarkup(draft.name, context)}</span><input id="coverageLiveName" maxlength="30" required value="${escapeAttr(draft.name)}"></span></label>
+    <label class="field coverage-token-field"><span class="coverage-field-label">Subtitle <small id="coverageLiveSubtitleCount">${draft.subtitle.length}/30</small></span><span class="coverage-token-shell"><span class="coverage-token-mirror" id="coverageLiveSubtitleMirror" aria-hidden="true">${coverageFieldHighlightMarkup(draft.subtitle, context)}</span><input id="coverageLiveSubtitle" maxlength="30" value="${escapeAttr(draft.subtitle)}" placeholder="Paste the localized subtitle"></span></label>
+    <label class="field coverage-token-field"><span class="coverage-field-label">Keyword field <small id="coverageLiveKeywordsCount">${draft.keywords.length}/100</small></span><span class="coverage-token-shell"><span class="coverage-token-mirror" id="coverageLiveKeywordsMirror" aria-hidden="true">${coverageKeywordFieldHighlightMarkup(draft.keywords, context)}</span><input id="coverageLiveKeywords" maxlength="100" value="${escapeAttr(draft.keywords)}" placeholder="keyword one, keyword two"></span><small>Changes recalculate the audit automatically and save locally after a short pause.</small></label>
+    <div class="coverage-highlight-legend coverage-input-legend"><span class="coverage-token-unique">Unique keyword</span><span class="coverage-token-brand">Brand term</span><span class="coverage-token-repeated">Repeated</span></div>
+  </form>`;
+}
+
+function coverageResultsMarkup(analysis, strategy) {
+  const matches = analysis.matched || [];
+  const untrackedMatches = analysis.untracked_matches || [];
+  return `<div class="coverage-principles">
+      ${coveragePrincipleCard(strategy.no_repetition)}
+      ${coveragePrincipleCard(strategy.title_order)}
+    </div>
+    <div class="coverage-summary">
+      <div><span>Targeted terms</span><strong>${analysis.target_terms}</strong><small>${analysis.keyword_field_terms} keyword-field entries</small></div>
+      <div><span>Tracked in listing</span><strong>${analysis.tracked_matches}</strong><small>keywords found in metadata</small></div>
+      <div><span>Already ranking</span><strong>${analysis.ranked_keywords}</strong><small>with a returned position</small></div>
+      <div><span>Not ranking</span><strong>${analysis.unranked_keywords}</strong><small>outside the result window</small></div>
+    </div>
+    <div class="coverage-match-sections">
+      <section class="coverage-matched coverage-match-group"><strong>Tracked keyword matches <span>${matches.length}</span></strong>${matches.length ? matches.map((item) => `<div class="coverage-match ${item.found ? "ranked" : "unranked"}"><span>${escapeHtml(item.keyword)}</span><small>${item.sources.map(escapeHtml).join(" · ")}</small><b>${item.found ? `#${item.rank}` : `>${item.result_limit}`}</b></div>`).join("") : `<p>No currently tracked keywords appear in this metadata.</p>`}</section>
+      <section class="coverage-untracked coverage-match-group"><strong>Untracked keyword matches <span>${untrackedMatches.length}</span></strong>${untrackedMatches.length ? untrackedMatches.map((item) => `<div class="coverage-match untracked"><span>${escapeHtml(item.keyword)}</span><small>${item.sources.map(escapeHtml).join(" · ")}</small><b>Untracked</b></div>`).join("") : `<p>Every detected metadata term is already tracked.</p>`}</section>
+    </div>`;
+}
+
+function coverageHighlightContext(name, subtitle, keywords, brandTerm) {
+  const counts = new Map();
+  [name, subtitle, keywords].forEach((value) => {
+    coverageAnalysisTokens(value).forEach((token) => counts.set(token, (counts.get(token) || 0) + 1));
+  });
+  return {
+    counts,
+    brandWords: new Set(coverageAnalysisTokens(brandTerm)),
+  };
+}
+
+function coverageFieldHighlightMarkup(value, context) {
+  const source = String(value || "");
+  const parts = [];
+  let cursor = 0;
+  for (const match of source.matchAll(/[^\W_]+(?:['’][^\W_]+)?/gu)) {
+    const index = match.index ?? cursor;
+    parts.push(escapeHtml(source.slice(cursor, index)));
+    const tokens = coverageAnalysisTokens(match[0]);
+    if (!tokens.length) {
+      parts.push(escapeHtml(match[0]));
+    } else {
+      const tone = tokens.some((token) => (context.counts.get(token) || 0) > 1)
+        ? "repeated"
+        : tokens.some((token) => context.brandWords.has(token))
+          ? "brand"
+          : "unique";
+      parts.push(`<mark class="coverage-token-${tone}">${escapeHtml(match[0])}</mark>`);
+    }
+    cursor = index + match[0].length;
+  }
+  parts.push(escapeHtml(source.slice(cursor)));
+  return parts.join("");
+}
+
+function coverageKeywordFieldHighlightMarkup(value, context) {
+  return String(value || "").split(/([,\n]+)/).map((part) => {
+    if (!part || /^[,\n]+$/.test(part)) return escapeHtml(part);
+    const tokens = coverageAnalysisTokens(part);
+    if (!tokens.length) return escapeHtml(part);
+    const leading = part.match(/^\s*/)?.[0] || "";
+    const trailing = part.match(/\s*$/)?.[0] || "";
+    const content = part.slice(leading.length, part.length - trailing.length);
+    const tone = tokens.some((token) => (context.counts.get(token) || 0) > 1)
+      ? "repeated"
+      : tokens.some((token) => context.brandWords.has(token))
+        ? "brand"
+        : "unique";
+    return `${escapeHtml(leading)}<mark class="coverage-token-${tone}">${escapeHtml(content)}</mark>${escapeHtml(trailing)}`;
+  }).join("");
+}
+
+function renderCoverageInputHighlights(strategy = state.coverageStrategy) {
+  if (!el("#coverageLiveForm")) return;
+  const context = coverageHighlightContext(
+    el("#coverageLiveName").value,
+    el("#coverageLiveSubtitle").value,
+    el("#coverageLiveKeywords").value,
+    strategy?.brand_term || state.coverageBrand,
+  );
+  el("#coverageLiveNameMirror").innerHTML = coverageFieldHighlightMarkup(el("#coverageLiveName").value, context);
+  el("#coverageLiveSubtitleMirror").innerHTML = coverageFieldHighlightMarkup(el("#coverageLiveSubtitle").value, context);
+  el("#coverageLiveKeywordsMirror").innerHTML = coverageKeywordFieldHighlightMarkup(el("#coverageLiveKeywords").value, context);
+  syncCoverageInputScrolls();
+}
+
+function syncCoverageInputScrolls() {
+  ["#coverageLiveName", "#coverageLiveSubtitle", "#coverageLiveKeywords"].forEach((selector) => {
+    const input = el(selector);
+    const mirror = input.closest(".coverage-token-shell").querySelector(".coverage-token-mirror");
+    mirror.scrollLeft = input.scrollLeft;
+  });
+}
+
+function coverageAnalysisTokens(value) {
+  const stopWords = new Set(["a", "an", "and", "app", "de", "des", "du", "el", "en", "et", "for", "la", "le", "les", "of", "para", "por", "the", "to", "un", "une", "your"]);
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)?.filter((token) => token.length > 1 && !stopWords.has(token)) || [];
+}
+
+function bindLiveCoverageEditor() {
+  const fields = [
+    ["#coverageLiveName", "#coverageLiveNameCount"],
+    ["#coverageLiveSubtitle", "#coverageLiveSubtitleCount"],
+    ["#coverageLiveKeywords", "#coverageLiveKeywordsCount"],
+  ];
+  fields.forEach(([inputSelector, countSelector]) => {
+    const input = el(inputSelector);
+    input.addEventListener("input", () => {
+      el(countSelector).textContent = `${input.value.length}/${input.maxLength}`;
+      renderCoverageInputHighlights();
+      window.requestAnimationFrame(syncCoverageInputScrolls);
+      scheduleCoverageLiveSave();
+    });
+    ["scroll", "keydown", "keyup", "click", "select", "focus"].forEach((eventName) => {
+      input.addEventListener(eventName, () => window.requestAnimationFrame(syncCoverageInputScrolls));
+    });
+  });
+  renderCoverageInputHighlights();
+}
+
+function scheduleCoverageLiveSave() {
+  window.clearTimeout(state.coverageSaveTimer);
+  state.coverageSaveTimer = window.setTimeout(saveLiveListingMetadata, 550);
+}
+
+function syncCoverageDraftFromLiveForm() {
+  if (!el("#coverageLiveForm")) return;
+  state.coverageDraft = {
+    name: el("#coverageLiveName").value.trim(),
+    subtitle: el("#coverageLiveSubtitle").value.trim(),
+    keywords: el("#coverageLiveKeywords").value.trim(),
+  };
+}
+
+async function saveLiveListingMetadata() {
+  if (!el("#coverageLiveForm")) return;
+  const revision = ++state.coverageSaveRevision;
+  const draft = {
+    name: el("#coverageLiveName").value.trim(),
+    subtitle: el("#coverageLiveSubtitle").value.trim(),
+    keywords: el("#coverageLiveKeywords").value.trim(),
+  };
+  if (!draft.name) {
+    el("#coverageSaveStatus").textContent = "Name required";
+    return;
+  }
+  el("#coverageSaveStatus").textContent = "Saving…";
+  try {
+    const result = await request("/api/listing-metadata", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        country: state.coverageCountry,
+        device: state.device,
+        ...draft,
+        goal: state.coverageGoal,
+        brandTerm: state.coverageBrand,
+      },
+    });
+    if (revision !== state.coverageSaveRevision) return;
+    state.coverageDraft = draft;
+    state.coverageAnalysis = result.analysis;
+    state.coverageStrategy = result.strategy;
+    state.data.listingMetadata = result.metadata;
+    if (result.health) {
+      state.data.health = result.health;
+      renderHero();
+      renderHealthScore();
+      renderHealthSuggestions();
+    }
+    renderCoverageInputHighlights(result.strategy);
+    el("#coverageLiveResults").innerHTML = coverageResultsMarkup(result.analysis, result.strategy);
+    el("#coverageSaveStatus").textContent = "Saved live";
+  } catch (error) {
+    if (revision === state.coverageSaveRevision) {
+      el("#coverageSaveStatus").textContent = "Save failed";
+      toast(error.message, true);
+    }
+  }
+}
+
+function coverageGoalOption(value, label, detail, routeLabel) {
+  const checked = state.coverageGoal === value;
+  return `<label class="coverage-goal-option ${checked ? "selected" : ""}"><input type="radio" name="coverageGoal" value="${value}" ${checked ? "checked" : ""}><span class="coverage-goal-radio" aria-hidden="true"></span><span class="coverage-goal-copy"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></span><span class="coverage-goal-route">${escapeHtml(routeLabel)}</span></label>`;
+}
+
+function coveragePrincipleCard(principle) {
+  const tone = principle.passed === true ? "pass" : principle.passed === false ? "fail" : "pending";
+  const label = principle.passed === true ? "Pass" : principle.passed === false ? "Review" : "Needs input";
+  return `<article class="coverage-principle ${tone}"><div><span>${tone === "pass" ? "✓" : tone === "fail" ? "!" : "?"}</span><strong>${escapeHtml(principle.label)}</strong></div><p>${escapeHtml(principle.detail)}</p><small>${label}</small></article>`;
+}
+
+function inferCoverageBrand(value) {
+  const parts = value.split(/\s*[:|–—-]\s*/).filter(Boolean);
+  return parts.length > 1 ? parts.at(-1) : "";
 }
 
 function bindCoverageCounter(inputSelector, counterSelector) {
@@ -695,12 +1288,21 @@ function bindCoverageCounter(inputSelector, counterSelector) {
   });
 }
 
-async function loadCoverageListing() {
+async function continueCoverageGoal() {
+  const goal = el('input[name="coverageGoal"]:checked')?.value || "aso_seo_aeo";
+  const brand = el("#coverageBrandTerm").value.trim();
+  if (!brand) {
+    toast("Enter the app’s brand term before continuing.", true);
+    return;
+  }
   const selected = el("#coverageCountrySelect").value;
+  state.coverageGoal = goal;
+  state.coverageBrand = brand;
   state.coverageCountry = selected;
   state.coverageStep = 2;
   state.coverageDraft = null;
   state.coverageAnalysis = null;
+  state.coverageStrategy = null;
   if (selected !== state.country) {
     state.country = selected;
     await loadDashboard({ quiet: true });
@@ -719,7 +1321,7 @@ async function analyseCoverage(event) {
   try {
     const result = await request("/api/listing-metadata", {
       method: "POST",
-      body: { appId: state.appId, country: state.coverageCountry, device: state.device, name, subtitle, keywords },
+      body: { appId: state.appId, country: state.coverageCountry, device: state.device, name, subtitle, keywords, goal: state.coverageGoal, brandTerm: state.coverageBrand },
     });
     state.coverageDraft = {
       name: result.metadata.name,
@@ -728,8 +1330,13 @@ async function analyseCoverage(event) {
     };
     state.data.listingMetadata = result.metadata;
     state.coverageAnalysis = result.analysis;
+    state.coverageStrategy = result.strategy;
+    state.coverageGoal = result.metadata.channelGoal;
+    state.coverageBrand = result.metadata.brandTerm;
+    if (result.health) state.data.health = result.health;
     state.coverageStep = 3;
-    renderListingCoverage();
+    renderHero();
+    renderHealth();
   } catch (error) { toast(error.message, true); }
   finally { setBusy(false); }
 }
@@ -846,9 +1453,22 @@ function renderLosingTo() {
         appId: app.appId,
         name: app.name,
         artworkUrl: app.artworkUrl,
+        averageRating: null,
+        ratingCount: null,
+        ratingCheckedAt: Number.NEGATIVE_INFINITY,
         count: 0,
         keywords: [],
       };
+      const checkedAt = +new Date(row.checkedAt);
+      if (
+        (app.averageRating != null || app.ratingCount != null)
+        && Number.isFinite(checkedAt)
+        && checkedAt >= existing.ratingCheckedAt
+      ) {
+        existing.averageRating = app.averageRating;
+        existing.ratingCount = app.ratingCount;
+        existing.ratingCheckedAt = checkedAt;
+      }
       existing.count += 1;
       existing.keywords.push(row.keyword);
       competitors.set(app.appId, existing);
@@ -863,23 +1483,61 @@ function renderLosingTo() {
       : escapeHtml(initials(app.name));
     return `<article class="losing-item" title="${escapeAttr(`${app.name} — Ahead in: ${keywords.join(", ")}`)}">
       <span class="losing-icon">${artwork}</span>
-      <span class="losing-copy"><strong>${escapeHtml(app.name)}</strong><small>${app.count === 1 ? "keyword" : "keywords"}</small></span>
+      <span class="losing-copy"><strong>${escapeHtml(app.name)}</strong>${losingRatingMarkup(app)}</span>
       <span class="losing-value"><strong>${app.count}</strong><small>ahead</small></span>
     </article>`;
   }).join("") || `<div class="losing-empty">No Top 5 competitors are currently ahead of this app in the selected market.</div>`;
 }
 
+function losingRatingMarkup(app) {
+  const rating = Number(app.averageRating);
+  const ratingCount = Number(app.ratingCount);
+  const hasRating = app.averageRating != null && Number.isFinite(rating);
+  const hasCount = app.ratingCount != null && Number.isFinite(ratingCount);
+  if (!hasRating && !hasCount) {
+    return `<small class="losing-rating unavailable"><span>★</span><span>Rating unavailable</span></small>`;
+  }
+  const ratingLabel = hasRating ? rating.toFixed(1) : "—";
+  const countLabel = hasCount
+    ? `${formatCompact(ratingCount)} ${ratingCount === 1 ? "rating" : "ratings"}`
+    : "rating count unavailable";
+  return `<small class="losing-rating"><span>★ ${ratingLabel}</span><span>${countLabel}</span></small>`;
+}
+
 function renderHealth() {
-  const health = state.data.health;
   renderListingCoverage();
   renderScreenshots();
+  renderHealthScore();
+  renderHealthSuggestions();
+}
+
+function renderHealthScore() {
+  const health = state.data.health;
+  const healthLayout = el("#healthScoreCard").closest(".health-layout");
+  const breakdownCard = el("#healthBreakdown").closest(".breakdown-card");
+  const auditConfigured = keywordCoverageConfigured();
+  healthLayout.classList.toggle("audit-locked", !auditConfigured);
+  breakdownCard.hidden = !auditConfigured;
+  if (!auditConfigured) {
+    el("#healthScoreCard").innerHTML = `<div class="health-audit-gate"><span class="health-audit-icon">⌕</span><p class="section-kicker">Listing health</p><h2>Complete Keyword coverage to unlock scoring</h2><p>Set your growth strategy, brand term, title, subtitle, and keyword field in the listing audit above. The health score stays hidden until your audit is saved.</p><button type="button" class="button button-primary" id="healthAuditButton">Set up listing audit ↑</button></div>`;
+    el("#healthBreakdown").innerHTML = "";
+    el("#healthAuditButton").addEventListener("click", () => {
+      el("#coverageCard").scrollIntoView({ behavior: "smooth", block: "start" });
+      el("#coverageBrandTerm")?.focus();
+    });
+    return;
+  }
   if (!health) {
     el("#healthScoreCard").innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><h3>Listing unavailable</h3><p>${escapeHtml(state.data.listingError || "Apple did not return listing metadata.")}</p></div>`;
     el("#healthBreakdown").innerHTML = "";
-    el("#healthSuggestions").innerHTML = "";
     return;
   }
-  el("#healthScoreCard").innerHTML = `<p class="section-kicker">Listing health</p><div class="score-ring" style="--score:${health.score}"><strong>${health.score}</strong></div><h2>${escapeHtml(health.label)}</h2><p>Public listing completeness for ${state.country.toUpperCase()}. Unavailable Apple fields are excluded. This is a local heuristic—not an Apple or proprietary ASO score.</p>`;
+  if (health.score == null) {
+    el("#healthScoreCard").innerHTML = `<div class="empty-state"><div class="empty-icon">⌕</div><h3>Complete the strategy audit</h3><p>The score is calculated only from saved keyword repetition and title-order checks.</p></div>`;
+    el("#healthBreakdown").innerHTML = "";
+    return;
+  }
+  el("#healthScoreCard").innerHTML = `<p class="section-kicker">Strategy audit score</p><div class="score-ring" style="--score:${health.score}"><strong>${health.score}</strong></div><h2>${escapeHtml(health.label)}</h2><p>Calculated only from the saved listing strategy audit for ${state.country.toUpperCase()}. Public listing fields are shown separately and do not affect this score.</p>`;
   el("#healthBreakdown").innerHTML = health.items.map((item) => {
     const available = item.available !== false;
     const percent = Math.round(item.score / item.maximum * 100);
@@ -887,8 +1545,22 @@ function renderHealth() {
     const progress = available ? `<div class="progress"><i class="${band}" style="width:${percent}%"></i></div>` : `<div class="progress unavailable"><span>Not exposed</span></div>`;
     return `<div class="health-row ${available ? "" : "unavailable"}"><span class="health-row-icon">${healthIcon(item.key)}</span><div><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.detail)}</small></div>${progress}<div class="score-fraction">${available ? `${item.score}/${item.maximum}` : "N/A"}</div></div>`;
   }).join("");
+}
+
+function renderHealthSuggestions() {
+  const health = state.data.health;
+  if (!health) {
+    el("#healthSuggestions").innerHTML = "";
+    el("#healthMethodology").textContent = "";
+    return;
+  }
   el("#healthSuggestions").innerHTML = `<div class="suggestion-list">${health.suggestions.map((item) => `<article class="suggestion"><i></i><p>${escapeHtml(item)}</p></article>`).join("")}</div>`;
   el("#healthMethodology").textContent = health.methodology;
+}
+
+function keywordCoverageConfigured() {
+  const metadata = state.data?.listingMetadata;
+  return Boolean(metadata?.name?.trim() && metadata?.brandTerm?.trim() && metadata?.channelGoal);
 }
 
 function renderScreenshots() {
@@ -1049,14 +1721,93 @@ function compareAppHead(app) {
 }
 
 async function runCheck() {
-  if (!state.appId) return;
-  setBusy(true);
+  if (!state.appId || state.checkInProgress) return;
+  const currentRows = countryRows();
+  const rows = currentRows.filter((row) => !keywordCheckedWithinDay(row));
+  const skipped = currentRows.length - rows.length;
+  if (!rows.length) {
+    toast(
+      currentRows.length
+        ? `All ${currentRows.length} keyword rows were checked within the last 24 hours.`
+        : "No checked keyword rows are available to refresh.",
+      !currentRows.length,
+    );
+    return;
+  }
+  const button = el("#runCheckButton");
+  state.checkInProgress = true;
+  state.checkingTargets = new Set();
+  state.queuedCheckTargets = new Set(rows.map((row) => row.targetId));
+  button.disabled = true;
+  renderRankings();
+  let completed = 0;
+  let checkedCount = 0;
+  let failures = 0;
   try {
-    const result = await request("/api/check", { method: "POST", body: { appId: state.appId, country: state.country, device: state.device } });
-    toast(`Stored ${result.checks} check${result.checks === 1 ? "" : "s"} from ${result.searches} Apple search${result.searches === 1 ? "" : "es"}.`);
+    for (const row of rows) {
+      state.queuedCheckTargets.delete(row.targetId);
+      state.checkingTargets.add(row.targetId);
+      button.innerHTML = `<span class="sync-icon">↻</span> Checking ${completed + 1}/${rows.length}`;
+      renderRankings();
+      try {
+        const result = await request("/api/check", {
+          method: "POST",
+          body: {
+            appId: state.appId,
+            country: row.country,
+            device: row.device,
+            keyword: row.keyword,
+          },
+        });
+        failures += Number(result.failures || 0);
+        skipped += Number(result.skipped || 0);
+        checkedCount += Number(result.checks || 0);
+        const updated = result.rankings?.[0];
+        if (updated) {
+          const index = (state.data.rankings || []).findIndex(
+            (item) => item.targetId === updated.targetId,
+          );
+          if (index >= 0) state.data.rankings[index] = updated;
+        }
+      } catch (error) {
+        failures += 1;
+        const index = (state.data.rankings || []).findIndex(
+          (item) => item.targetId === row.targetId,
+        );
+        if (index >= 0) {
+          state.data.rankings[index] = {
+            ...state.data.rankings[index],
+            status: "error",
+            error: error.message,
+          };
+        }
+      }
+      state.checkingTargets.delete(row.targetId);
+      completed += 1;
+      renderRankings();
+    }
     await loadDashboard({ quiet: true });
-  } catch (error) { toast(error.message, true); }
-  finally { setBusy(false); }
+    const skippedText = skipped
+      ? ` ${skipped} row${skipped === 1 ? " was" : "s were"} skipped because data already exists from the last 24 hours.`
+      : "";
+    toast(
+      `Checked ${checkedCount} keyword row${checkedCount === 1 ? "" : "s"}${failures ? `; ${failures} failed` : ""}.${skippedText}`,
+      failures > 0,
+    );
+  } finally {
+    state.checkingTargets.clear();
+    state.queuedCheckTargets.clear();
+    state.checkInProgress = false;
+    button.disabled = false;
+    button.innerHTML = `<span class="sync-icon">↻</span> Run check`;
+    renderRankings();
+  }
+}
+
+function keywordCheckedWithinDay(row) {
+  if (row.status !== "success" || !row.checkedAt) return false;
+  const checkedAt = +new Date(row.checkedAt);
+  return Number.isFinite(checkedAt) && Date.now() - checkedAt < 24 * 60 * 60 * 1000;
 }
 
 async function addKeyword(event) {
@@ -1682,14 +2433,19 @@ function toast(message, isError = false) {
   toastTimer = setTimeout(() => target.classList.remove("show"), 3500);
 }
 
-function healthValue(health) { return `<span class="health-chip">${health.score}</span> <strong>${escapeHtml(health.label)}</strong>`; }
+function healthValue(health) {
+  if (health?.score == null) {
+    return `<span class="health-chip">—</span> <strong>Audit required</strong>`;
+  }
+  return `<span class="health-chip">${health.score}</span> <strong>${escapeHtml(health.label)}</strong>`;
+}
 function countryFlag(code) { return [...String(code).toUpperCase()].map((char) => String.fromCodePoint(127397 + char.charCodeAt(0))).join(""); }
 function deviceName(device) { return device === "ipad" ? "iPad" : "iPhone"; }
 function deviceIcon(device) { return device === "ipad" ? "▭" : "▯"; }
 function screenshotValue(listing) { return listing.screenshotStatus === "available" ? String(listing.screenshotCount) : "Not exposed"; }
 function ratingValue(app) { return app.averageRating ? `★ ${app.averageRating.toFixed(1)} · ${formatCompact(app.ratingCount)} ratings` : "No rating returned"; }
 function shortOpportunity(value) { return value.replace(/\s*\([^)]*\)/, ""); }
-function healthIcon(key) { return ({ title: "T", description: "≡", screenshots: "▣", ratings: "★", freshness: "↻", localization: "◎" })[key] || "·"; }
+function healthIcon(key) { return ({ keyword_repetition: "⌕", title_order: "↕" })[key] || "·"; }
 function initials(value) { return (value || "AS").split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function localDateKey(value) {
   const date = new Date(value);

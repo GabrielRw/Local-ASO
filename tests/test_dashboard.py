@@ -1,6 +1,6 @@
 """Local dashboard composition and mutation tests."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Thread
 
@@ -58,7 +58,7 @@ def dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DashboardServi
         )[0]
         check = RankCheck(
             tracking_target_id=target.id,
-            checked_at=datetime.now(UTC),
+            checked_at=datetime.now(UTC) - timedelta(days=2),
             rank=26,
             found=True,
             result_limit=200,
@@ -72,12 +72,16 @@ def dashboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DashboardServi
                 track_id=111,
                 name="First app",
                 artwork_url="https://is1-ssl.mzstatic.com/first.png",
+                average_rating=4.8,
+                rating_count=2_400_000,
             ),
             RankTopApp(
                 position=2,
                 track_id=222,
                 name="Second app",
                 artwork_url=None,
+                average_rating=None,
+                rating_count=None,
             ),
         ]
         session.add(check)
@@ -127,7 +131,9 @@ def test_dashboard_bootstrap_uses_real_local_rank_data(dashboard: DashboardServi
     assert rankings[0]["device"] == "iphone"
     assert rankings[0]["topApps"][0]["name"] == "First app"  # type: ignore[index]
     assert rankings[0]["topApps"][1]["appId"] == 222  # type: ignore[index]
-    assert payload["health"]["score"] > 0  # type: ignore[index]
+    assert rankings[0]["topApps"][0]["averageRating"] == 4.8  # type: ignore[index]
+    assert rankings[0]["topApps"][0]["ratingCount"] == 2_400_000  # type: ignore[index]
+    assert payload["health"]["score"] is None  # type: ignore[index]
     assert payload["listing"]["screenshotStatus"] == "available"  # type: ignore[index]
     assert len(payload["listing"]["screenshots"]) == 5  # type: ignore[index]
     assert payload["apps"][0]["artworkUrl"] == (  # type: ignore[index]
@@ -166,6 +172,24 @@ def test_dashboard_adds_keyword_targets_and_soft_deactivates(
     )
     assert reactivated["targetsCreated"] == 0
     assert reactivated["targetsReactivated"] == 1
+
+
+def test_dashboard_keyword_check_returns_updated_ranking_row(
+    dashboard: DashboardService,
+) -> None:
+    result = dashboard.check(
+        {
+            "appId": 6771773264,
+            "country": "us",
+            "device": "iphone",
+            "keyword": "learn astrology",
+        }
+    )
+
+    assert result["checks"] == 1
+    assert result["rankings"][0]["keyword"] == "learn astrology"  # type: ignore[index]
+    assert result["rankings"][0]["rank"] == 9  # type: ignore[index]
+    assert result["rankings"][0]["status"] == "success"  # type: ignore[index]
 
 
 def test_dashboard_exposes_visibility_for_every_tracked_country(
@@ -298,7 +322,8 @@ def test_dashboard_compares_two_public_listings(
     result = dashboard.compare(1, 2, "us")
     assert result["primary"]["name"] == "Primary"  # type: ignore[index]
     assert result["competitor"]["name"] == "Other"  # type: ignore[index]
-    assert result["primaryHealth"]["score"] == result["competitorHealth"]["score"]  # type: ignore[index]
+    assert result["primaryHealth"]["score"] is None  # type: ignore[index]
+    assert result["competitorHealth"]["score"] is None  # type: ignore[index]
 
 
 def test_dashboard_saves_and_analyzes_listing_metadata(dashboard: DashboardService) -> None:
@@ -307,17 +332,36 @@ def test_dashboard_saves_and_analyzes_listing_metadata(dashboard: DashboardServi
             "appId": 6771773264,
             "country": "us",
             "device": "iphone",
-            "name": "Learn Astrology",
+            "name": "Learn Astrology: AstroLingo",
             "subtitle": "Birth Chart Lessons",
             "keywords": "birth chart, natal chart, astrology",
+            "goal": "aso_seo_aeo",
+            "brandTerm": "AstroLingo",
         }
     )
 
-    assert result["metadata"]["name"] == "Learn Astrology"  # type: ignore[index]
+    assert result["metadata"]["name"] == "Learn Astrology: AstroLingo"  # type: ignore[index]
+    assert result["metadata"]["channelGoal"] == "aso_seo_aeo"  # type: ignore[index]
+    assert result["metadata"]["brandTerm"] == "AstroLingo"  # type: ignore[index]
     assert result["analysis"]["tracked_matches"] == 1  # type: ignore[index]
     assert result["analysis"]["ranked_keywords"] == 1  # type: ignore[index]
+    assert result["strategy"]["title_order"]["passed"] is True  # type: ignore[index]
+    assert result["strategy"]["no_repetition"]["passed"] is False  # type: ignore[index]
+    assert result["health"]["score"] == 40  # type: ignore[index]
+    repetition_item = next(
+        item
+        for item in result["health"]["items"]  # type: ignore[index]
+        if item["key"] == "keyword_repetition"
+    )
+    assert repetition_item["score"] == 10
+    assert {item["key"] for item in result["health"]["items"]} == {  # type: ignore[index]
+        "keyword_repetition",
+        "title_order",
+    }
     payload = dashboard.bootstrap(6771773264, "us")
     assert payload["listingMetadata"]["subtitle"] == "Birth Chart Lessons"  # type: ignore[index]
+    assert payload["listingMetadata"]["brandTerm"] == "AstroLingo"  # type: ignore[index]
+    assert payload["health"]["score"] == result["health"]["score"]  # type: ignore[index]
 
 
 def test_dashboard_removes_app_and_can_restore_it_by_re_adding(

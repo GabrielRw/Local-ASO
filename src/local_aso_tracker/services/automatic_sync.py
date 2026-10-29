@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from local_aso_tracker.config import Settings, load_settings
 from local_aso_tracker.database import session_scope
 from local_aso_tracker.models import TrackingTarget
-from local_aso_tracker.repositories.data import list_targets
+from local_aso_tracker.repositories.data import filter_targets_due_for_check, list_targets
 from local_aso_tracker.services.checks import CheckRunResult, run_checks
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ class AutomaticSyncSummary:
     targets: int
     searches: int
     failures: int
+    skipped: int = 0
 
 
 def sync_all_current_keywords(
@@ -44,11 +45,19 @@ def sync_all_current_keywords(
         targets = list_targets(session, active_only=True)
         if not targets:
             return AutomaticSyncSummary(targets=0, searches=0, failures=0)
-        result = runner(session, targets, settings)
+        due_targets, skipped = filter_targets_due_for_check(
+            session,
+            targets,
+            cutoff=datetime.now(UTC) - timedelta(hours=24),
+        )
+        if not due_targets:
+            return AutomaticSyncSummary(targets=0, searches=0, failures=0, skipped=skipped)
+        result = runner(session, due_targets, settings)
     return AutomaticSyncSummary(
-        targets=len(targets),
+        targets=len(due_targets),
         searches=result.searches,
         failures=result.failures,
+        skipped=skipped,
     )
 
 
@@ -72,6 +81,7 @@ class AutomaticSyncWorker:
         self._targets = 0
         self._searches = 0
         self._failures = 0
+        self._skipped = 0
         self._error: str | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -111,6 +121,7 @@ class AutomaticSyncWorker:
                 "targets": self._targets,
                 "searches": self._searches,
                 "failures": self._failures,
+                "skipped": self._skipped,
                 "error": self._error,
             }
 
@@ -135,6 +146,7 @@ class AutomaticSyncWorker:
             self._targets = 0
             self._searches = 0
             self._failures = 0
+            self._skipped = 0
             self._error = None
         try:
             summary = self._sync_runner()
@@ -152,11 +164,13 @@ class AutomaticSyncWorker:
             self._targets = summary.targets
             self._searches = summary.searches
             self._failures = summary.failures
+            self._skipped = summary.skipped
         logger.info(
-            "Automatic keyword sync complete: targets=%s searches=%s failures=%s",
+            "Automatic keyword sync complete: targets=%s searches=%s failures=%s skipped=%s",
             summary.targets,
             summary.searches,
             summary.failures,
+            summary.skipped,
         )
 
 

@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -59,6 +60,8 @@ class ListingMetadata(Base):
     name: Mapped[str] = mapped_column(String(255))
     subtitle: Mapped[str] = mapped_column(String(255), default="")
     keyword_field: Mapped[str] = mapped_column(Text, default="")
+    channel_goal: Mapped[str] = mapped_column(String(30), default="aso_seo_aeo")
+    brand_term: Mapped[str] = mapped_column(String(255), default="")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
@@ -302,6 +305,8 @@ class RankTopApp(Base):
     track_id: Mapped[int] = mapped_column(Integer)
     name: Mapped[str] = mapped_column(String(255))
     artwork_url: Mapped[str | None] = mapped_column(Text)
+    average_rating: Mapped[float | None] = mapped_column(Float)
+    rating_count: Mapped[int | None] = mapped_column(Integer)
 
     rank_check: Mapped[RankCheck] = relationship(back_populates="top_apps")
 

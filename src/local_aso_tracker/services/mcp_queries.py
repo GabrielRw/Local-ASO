@@ -111,6 +111,8 @@ def get_keyword_rankings(
                         "position": item.position,
                         "appId": item.track_id,
                         "name": item.name,
+                        "averageRating": item.average_rating,
+                        "ratingCount": item.rating_count,
                     }
                     for item in row.latest.top_apps
                 ],
@@ -233,6 +235,8 @@ def get_listing_coverage(
                 "name": metadata.name,
                 "subtitle": metadata.subtitle,
                 "keywords": metadata.keyword_field,
+                "channelGoal": metadata.channel_goal,
+                "brandTerm": metadata.brand_term,
                 "updatedAt": _iso(metadata.updated_at),
             },
             "analysis": asdict(analysis),

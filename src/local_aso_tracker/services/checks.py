@@ -119,6 +119,8 @@ async def run_checks_async(
                     track_id=result.track_id,
                     name=result.track_name or f"App {result.track_id}",
                     artwork_url=result.artwork_url_100,
+                    average_rating=result.average_user_rating,
+                    rating_count=result.user_rating_count,
                 )
                 for position, result in enumerate(
                     outcome.response.results[:5],

@@ -1,12 +1,14 @@
 """Background full-catalog synchronization tests."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from local_aso_tracker.database import run_migrations, session_scope
-from local_aso_tracker.repositories.data import seed_catalog, seed_targets
+from local_aso_tracker.models import RankCheck
+from local_aso_tracker.repositories.data import list_targets, seed_catalog, seed_targets
 from local_aso_tracker.services import automatic_sync
 
 
@@ -35,6 +37,39 @@ def test_sync_all_current_keywords_checks_every_active_target(
     assert len(checked) == 75
     assert result.searches == 75
     assert result.failures == 0
+
+
+def test_sync_all_current_keywords_skips_targets_checked_in_last_24_hours(
+    sync_database: None,
+) -> None:
+    with session_scope() as session:
+        targets = list_targets(session, active_only=True)
+        session.add_all(
+            RankCheck(
+                tracking_target_id=target.id,
+                checked_at=datetime.now(UTC),
+                rank=15,
+                found=True,
+                result_limit=200,
+                response_time_ms=10,
+                status="success",
+            )
+            for target in targets
+        )
+    calls = 0
+
+    def fail_if_called(session, targets, settings):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        raise AssertionError("recently checked targets should not be searched again")
+
+    result = automatic_sync.sync_all_current_keywords(check_runner=fail_if_called)
+
+    assert calls == 0
+    assert result.targets == 0
+    assert result.searches == 0
+    assert result.failures == 0
+    assert result.skipped == 75
 
 
 def test_automatic_sync_worker_runs_immediately_and_reports_status() -> None:

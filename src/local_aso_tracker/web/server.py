@@ -42,6 +42,7 @@ from local_aso_tracker.repositories.data import (
     add_keyword,
     add_storefront,
     add_target,
+    filter_targets_due_for_check,
     get_listing_metadata,
     latest_pairs,
     list_targets,
@@ -80,7 +81,11 @@ from local_aso_tracker.services.competitors import (
     refresh_competitor_ranks,
     remove_competitor,
 )
-from local_aso_tracker.services.coverage import TrackedKeyword, analyze_listing_coverage
+from local_aso_tracker.services.coverage import (
+    TrackedKeyword,
+    analyze_distribution_strategy,
+    analyze_listing_coverage,
+)
 from local_aso_tracker.services.estimates import ESTIMATE_VERSION
 from local_aso_tracker.services.health import assess_listing
 from local_aso_tracker.services.localization import localization_payload
@@ -149,6 +154,17 @@ class DashboardService:
                 if selected_id is not None
                 else None
             )
+            coverage_strategy = (
+                analyze_distribution_strategy(
+                    metadata.name,
+                    metadata.subtitle,
+                    metadata.keyword_field,
+                    goal=metadata.channel_goal,
+                    brand_term=metadata.brand_term,
+                )
+                if metadata is not None
+                else None
+            )
             targets = (
                 list_targets(session, apple_id=selected_id, active_only=True) if selected_id else []
             )
@@ -211,6 +227,8 @@ class DashboardService:
                         "name": metadata.name,
                         "subtitle": metadata.subtitle,
                         "keywords": metadata.keyword_field,
+                        "channelGoal": metadata.channel_goal,
+                        "brandTerm": metadata.brand_term,
                         "updatedAt": _iso_utc(metadata.updated_at),
                     }
                     if metadata
@@ -308,7 +326,7 @@ class DashboardService:
             try:
                 listing = self.listing(selected.apple_app_id, storefront)
                 payload["listing"] = self._listing_dict(listing)
-                payload["health"] = assess_listing(listing).as_dict()
+                payload["health"] = assess_listing(listing, strategy=coverage_strategy).as_dict()
             except AppleClientError as exc:
                 payload["listingError"] = str(exc)
                 payload["listing"] = self._fallback_listing(selected)
@@ -668,8 +686,16 @@ class DashboardService:
         name = " ".join(str(body.get("name", "")).split())
         subtitle = " ".join(str(body.get("subtitle", "")).split())
         keywords = " ".join(str(body.get("keywords", "")).split())
+        goal = str(body.get("goal", "aso_seo_aeo")).strip()
+        brand_term = " ".join(str(body.get("brandTerm", "")).split())
         if not name:
             raise ValueError("listing name is required")
+        if goal not in {"aso_seo_aeo", "ugc_ads"}:
+            raise ValueError("goal must be aso_seo_aeo or ugc_ads")
+        if not brand_term:
+            raise ValueError("brand term is required")
+        if len(brand_term) > 255:
+            raise ValueError("brand term must be 255 characters or fewer")
         if len(name) > 30:
             raise ValueError("listing name must be 30 characters or fewer")
         if len(subtitle) > 30:
@@ -684,6 +710,8 @@ class DashboardService:
                 name=name,
                 subtitle=subtitle,
                 keyword_field=keywords,
+                channel_goal=goal,
+                brand_term=brand_term,
             )
             targets = list_targets(
                 session,
@@ -704,16 +732,35 @@ class DashboardService:
                 if (pair := pairs.get(target.id))
             ]
             analysis = analyze_listing_coverage(name, subtitle, keywords, tracked)
+            strategy = analyze_distribution_strategy(
+                name,
+                subtitle,
+                keywords,
+                goal=goal,
+                brand_term=brand_term,
+            )
+        health: dict[str, object] | None = None
+        try:
+            listing = self.listing(app_id, country)
+            health = assess_listing(listing, strategy=strategy).as_dict()
+        except AppleClientError:
+            logger.debug(
+                "Could not recalculate health after saving listing audit for app %s", app_id
+            )
         return {
             "metadata": {
                 "name": metadata.name,
                 "subtitle": metadata.subtitle,
                 "keywords": metadata.keyword_field,
+                "channelGoal": metadata.channel_goal,
+                "brandTerm": metadata.brand_term,
                 "updatedAt": _iso_utc(metadata.updated_at),
             },
             "country": country,
             "device": device,
             "analysis": asdict(analysis),
+            "strategy": asdict(strategy),
+            "health": health,
         }
 
     def add_app_from_apple(self, body: dict[str, Any]) -> dict[str, object]:
@@ -765,11 +812,24 @@ class DashboardService:
             )
             if not targets:
                 raise ValueError("no matching active targets")
-            result = run_checks(session, targets, settings)
+            due_targets, skipped = filter_targets_due_for_check(
+                session,
+                targets,
+                cutoff=datetime.now(UTC) - timedelta(hours=24),
+            )
+            result = run_checks(session, due_targets, settings)
+            pairs = latest_pairs(session, due_targets)
+            rankings = [
+                self._ranking(RankingRow(target, pairs[target.id][0], pairs[target.id][1]))
+                for target in due_targets
+                if target.id in pairs
+            ]
             return {
                 "checks": len(result.checks),
                 "searches": result.searches,
                 "failures": result.failures,
+                "rankings": rankings,
+                "skipped": skipped,
             }
 
     @staticmethod
@@ -793,6 +853,8 @@ class DashboardService:
                     "appId": item.track_id,
                     "name": item.name,
                     "artworkUrl": item.artwork_url,
+                    "averageRating": item.average_rating,
+                    "ratingCount": item.rating_count,
                 }
                 for item in row.latest.top_apps
             ],
@@ -801,6 +863,8 @@ class DashboardService:
             "change": movement(row.latest, row.previous),
             "checkedAt": _iso_utc(row.latest.checked_at),
             "opportunity": opportunity_group(row.latest),
+            "status": row.latest.status,
+            "error": row.latest.error_message,
         }
 
     @staticmethod

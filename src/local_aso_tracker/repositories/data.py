@@ -213,6 +213,8 @@ def save_listing_metadata(
     name: str,
     subtitle: str,
     keyword_field: str,
+    channel_goal: str = "aso_seo_aeo",
+    brand_term: str = "",
 ) -> ListingMetadata:
     """Create or update the user-provided metadata for one app/storefront."""
 
@@ -237,12 +239,16 @@ def save_listing_metadata(
             name=name,
             subtitle=subtitle,
             keyword_field=keyword_field,
+            channel_goal=channel_goal,
+            brand_term=brand_term,
         )
         session.add(item)
     else:
         item.name = name
         item.subtitle = subtitle
         item.keyword_field = keyword_field
+        item.channel_goal = channel_goal
+        item.brand_term = brand_term
         item.updated_at = datetime.now(UTC)
     session.flush()
     return item
@@ -366,6 +372,33 @@ def latest_pairs(
         target_id: (items[-1], items[-2] if len(items) > 1 else None)
         for target_id, items in grouped.items()
     }
+
+
+def filter_targets_due_for_check(
+    session: Session,
+    targets: list[TrackingTarget],
+    *,
+    cutoff: datetime,
+) -> tuple[list[TrackingTarget], int]:
+    """Return targets without a successful check since the cutoff."""
+
+    normalized_cutoff = cutoff if cutoff.tzinfo is not None else cutoff.replace(tzinfo=UTC)
+    pairs = latest_pairs(session, targets)
+    due: list[TrackingTarget] = []
+    skipped = 0
+    for target in targets:
+        pair = pairs.get(target.id)
+        if pair is None:
+            due.append(target)
+            continue
+        checked_at = pair[0].checked_at
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=UTC)
+        if checked_at >= normalized_cutoff:
+            skipped += 1
+        else:
+            due.append(target)
+    return due, skipped
 
 
 def parse_date_start(value: date) -> datetime:

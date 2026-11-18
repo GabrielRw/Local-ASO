@@ -20,6 +20,12 @@ const state = {
   coverageBrand: "",
   coverageSaveTimer: null,
   coverageSaveRevision: 0,
+  localizationStudio: null,
+  localizationStudioLoaded: false,
+  localizationStudioLoading: false,
+  localizationTargets: [],
+  localizationProvider: "auto",
+  localizationPendingPushId: null,
   niche: null,
   nicheLoaded: false,
   nicheView: false,
@@ -32,6 +38,14 @@ const state = {
   appleAdsCountryFilter: "all",
   appleAdsSortField: "keyword",
   appleAdsSortDirection: "asc",
+  audit: null,
+  auditLoaded: false,
+  auditLoading: false,
+  auditCountry: null,
+  auditIterationCountry: null,
+  auditProvider: "auto",
+  auditAgentOpen: false,
+  auditPollTimer: null,
   competitorMatrix: null,
   competitorMatrixLoaded: false,
   competitorMatrixLoading: false,
@@ -61,6 +75,7 @@ function bindEvents() {
     state.country = event.target.value;
     state.selectedTarget = null;
     state.filter = "";
+    resetAuditState();
     resetCoverage();
     el("#keywordFilter").value = "";
     loadDashboard();
@@ -68,6 +83,7 @@ function bindEvents() {
   el("#deviceSelect").addEventListener("change", (event) => {
     state.device = event.target.value;
     state.selectedTarget = null;
+    resetAuditState();
     state.selectedTarget = null;
     state.filter = "";
     if (state.coverageStep === 3) {
@@ -82,6 +98,7 @@ function bindEvents() {
     renderListingCoverage();
     if (state.tab === "paid") loadAppleAds();
     if (state.tab === "compare") loadCompetitorMatrix();
+    if (state.tab === "audit") loadAudit();
   });
   el("#keywordFilter").addEventListener("input", (event) => {
     state.filter = event.target.value.trim().toLowerCase();
@@ -114,6 +131,14 @@ function bindEvents() {
   el("#countryVisibility").addEventListener("click", countryVisibilityClick);
   el("#appleAdsContent").addEventListener("click", appleAdsAction);
   el("#appleAdsContent").addEventListener("change", appleAdsChange);
+  el("#auditPanel").addEventListener("click", auditAction);
+  el("#auditPanel").addEventListener("change", auditChange);
+  el("#localizationStudio").addEventListener("click", localizationStudioAction);
+  el("#localizationStudio").addEventListener("change", localizationStudioChange);
+  el("#confirmLocalizationPush").addEventListener("click", confirmLocalizationPush);
+  el("#localizationPushModal").addEventListener("close", () => {
+    state.localizationPendingPushId = null;
+  });
   window.addEventListener("resize", () => {
     hideTopAppTooltip();
     closeCustomSelect();
@@ -147,8 +172,11 @@ function bindEvents() {
       switchTab(target);
       if (target === "paid") loadAppleAds();
       if (target === "compare") loadCompetitorMatrix();
+      if (target === "audit") loadAudit();
+      if (target === "health") loadLocalizationStudio();
     });
   });
+  el(".tabs[role=tablist]").addEventListener("keydown", handleTabKeydown);
   el("#nicheNavButton").addEventListener("click", openNicheWorkspace);
   el("#nicheCreateForm").addEventListener("submit", createNicheBoard);
   el("#nicheAgentForm").addEventListener("submit", addNicheKeywordsWithAgent);
@@ -162,6 +190,7 @@ function bindEvents() {
       const dialog = button.closest("dialog");
       if (dialog.id === "confirmModal") state.pendingDeactivateTarget = null;
       if (dialog.id === "deleteAppModal") state.pendingDeleteApp = null;
+      if (dialog.id === "localizationPushModal") state.localizationPendingPushId = null;
       if (dialog.id === "keywordModal") resetLocalization();
       dialog.close();
     });
@@ -435,6 +464,7 @@ function renderAll() {
   switchTab(state.tab, false);
   if (state.tab === "paid" && state.appId) loadAppleAds();
   if (state.tab === "compare" && state.appId) loadCompetitorMatrix();
+  if (state.tab === "audit" && state.appId) loadAudit();
 }
 
 function monitorAutomaticSync() {
@@ -492,6 +522,10 @@ function renderSidebar() {
     state.appleAdsLoaded = false;
     state.competitorMatrix = null;
     state.competitorMatrixLoaded = false;
+    state.localizationStudio = null;
+    state.localizationStudioLoaded = false;
+    state.localizationTargets = [];
+    resetAuditState();
     loadDashboard();
   }));
 }
@@ -707,7 +741,9 @@ function rankingSortValue(row, field) {
   if (field === "country") return row.country;
   if (field === "device") return row.device;
   if (field === "rank") return row.rank ?? null;
-  if (field === "volume") return row.volumeEstimate ?? null;
+  // Apple's measured popularity and the local ratings estimate are different scales, so
+  // measured keywords always sort as a group ahead of estimated ones.
+  if (field === "volume") return row.popularityStatus === "measured" ? 1000 + row.popularity : row.volumeEstimate ?? null;
   if (field === "difficulty") return row.difficultyEstimate ?? null;
   if (field === "top5") return (row.topApps || []).map((app) => app.name).join(" ").toLocaleLowerCase();
   if (field === "change") {
@@ -782,7 +818,7 @@ function renderRankings() {
   el("#rankingsBody").innerHTML = rows.map((row) => {
     const changeClass = row.change === "NEW" ? "new" : row.change === "LOST" ? "lost" : row.change.startsWith("+") ? "up" : row.change.startsWith("-") ? "down" : "flat";
     const signalClass = row.opportunity.startsWith("Defend") ? "defend" : row.opportunity.includes("Growth") ? "growth" : row.opportunity.includes("visible") ? "absent" : "";
-    const volumeTone = row.volumeEstimate == null ? "" : row.volumeEstimate >= 35 ? " volume-strong" : row.volumeEstimate >= 15 ? " volume-mid" : " volume-low";
+    const volumeTone = popularityTone(row);
     const difficultyTone = row.difficultyEstimate == null ? "" : row.difficultyEstimate >= 67 ? " difficulty-hard" : row.difficultyEstimate >= 34 ? " difficulty-mid" : " difficulty-low";
     const checkState = state.checkingTargets.has(row.targetId) ? "checking" : state.queuedCheckTargets.has(row.targetId) ? "queued" : "";
     const rankMarkup = checkState === "checking"
@@ -793,13 +829,13 @@ function renderRankings() {
           ? `<span class="row-check-state error" title="${escapeAttr(row.error || "Apple check failed")}">Check failed</span>`
           : `<span class="rank-number ${row.rank && row.rank <= 10 ? "top" : ""}">${row.found ? `#${row.rank}` : `>${row.resultLimit}`}</span>`;
     return `<tr data-target-id="${row.targetId}" class="${row.targetId === state.selectedTarget ? "selected" : ""} ${checkState ? `row-${checkState}` : ""}">
-      <td class="keyword-cell" title="${escapeAttr(row.keyword)}">${escapeHtml(row.keyword)}</td><td class="country-cell"><span class="country-badge">${countryFlag(row.country)} ${row.country.toUpperCase()}</span></td><td class="device-cell"><span class="device-badge ${escapeAttr(row.device)}">${deviceIcon(row.device)} ${deviceName(row.device)}</span></td>
+      <td class="keyword-cell" title="${escapeAttr(row.keyword)}"><button type="button" class="keyword-select" data-select-target="${row.targetId}" aria-pressed="${row.targetId === state.selectedTarget}" aria-label="Show rank history for ${escapeAttr(row.keyword)}">${escapeHtml(row.keyword)}</button></td><td class="country-cell"><span class="country-badge">${countryFlag(row.country)} ${row.country.toUpperCase()}</span></td><td class="device-cell"><span class="device-badge ${escapeAttr(row.device)}">${deviceIcon(row.device)} ${deviceName(row.device)}</span></td>
       <td class="rank-cell">${rankMarkup}</td>
-      <td class="estimate-cell volume-cell${volumeTone}">${estimateCell(row.volumeEstimate, "volume", row.estimateSampleSize)}</td>
+      <td class="estimate-cell volume-cell${volumeTone}">${popularityCell(row)}</td>
       <td class="estimate-cell difficulty-cell${difficultyTone}">${estimateCell(row.difficultyEstimate, "difficulty", row.estimateSampleSize)}</td>
       <td class="top-apps-cell">${topAppsCell(row.topApps)}</td>
       <td class="movement-cell"><span class="movement ${changeClass}">${escapeHtml(row.change)}</span></td><td class="signal-cell"><span class="signal ${signalClass}">${escapeHtml(shortOpportunity(row.opportunity))}</span></td>
-      <td class="updated-cell">${formatDate(row.checkedAt)}</td><td class="action-cell"><button class="row-action" data-delete-target="${row.targetId}" title="Stop tracking">×</button></td>
+      <td class="updated-cell">${formatDate(row.checkedAt)}</td><td class="action-cell"><button type="button" class="row-action" data-delete-target="${row.targetId}" title="Stop tracking" aria-label="Stop tracking ${escapeAttr(row.keyword)}">×</button></td>
     </tr>`;
   }).join("");
   hideTopAppTooltip();
@@ -935,9 +971,11 @@ async function rankingClick(event) {
   const row = event.target.closest("tr[data-target-id]");
   if (!row) return;
   state.selectedTarget = Number(row.dataset.targetId);
+  const restoreFocus = row.contains(document.activeElement);
   renderRankings();
   renderHistory();
-  el("#historyCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (restoreFocus) el(`[data-select-target="${state.selectedTarget}"]`)?.focus();
+  el("#historyCard").scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "nearest" });
 }
 
 async function confirmDeactivate() {
@@ -1506,9 +1544,330 @@ function losingRatingMarkup(app) {
 
 function renderHealth() {
   renderListingCoverage();
+  renderLocalizationStudio();
   renderScreenshots();
   renderHealthScore();
   renderHealthSuggestions();
+  if (state.tab === "health" && !state.localizationStudioLoaded && !state.localizationStudioLoading) {
+    loadLocalizationStudio();
+  }
+}
+
+async function loadLocalizationStudio({ quiet = false } = {}) {
+  if (!state.appId || state.localizationStudioLoading) return;
+  state.localizationStudioLoading = true;
+  if (!quiet) {
+    el("#localizationStudio").innerHTML = `<div class="skeleton localization-studio-skeleton"></div>`;
+  }
+  try {
+    state.localizationStudio = await request(
+      `/api/localization-studio?appId=${encodeURIComponent(state.appId)}&country=${encodeURIComponent(state.country)}`,
+    );
+    state.localizationStudioLoaded = true;
+    state.localizationProvider = state.localizationStudio.defaultProvider || "auto";
+    const validTargets = new Set(
+      (state.localizationStudio.countries || [])
+        .filter((country) => !country.isMain && country.locale !== state.localizationStudio.sourceLocale)
+        .map((country) => country.code),
+    );
+    state.localizationTargets = state.localizationTargets.filter((code) => validTargets.has(code));
+    renderLocalizationStudio();
+  } catch (error) {
+    el("#localizationStudio").innerHTML = `<div class="localization-studio-empty"><p>${escapeHtml(error.message)}</p><button type="button" class="button button-ghost" data-localization-action="reload">Retry</button></div>`;
+  } finally {
+    state.localizationStudioLoading = false;
+  }
+}
+
+function renderLocalizationStudio() {
+  const host = el("#localizationStudio");
+  if (!host) return;
+  if (!state.appId) {
+    host.innerHTML = `<div class="localization-studio-empty"><p>Select an app to manage localized listings.</p></div>`;
+    return;
+  }
+  if (!state.localizationStudioLoaded || !state.localizationStudio) {
+    host.innerHTML = `<div class="skeleton localization-studio-skeleton"></div>`;
+    return;
+  }
+  const studio = state.localizationStudio;
+  const connection = studio.connection || {};
+  const connectionReady = localizationConnectionReady(connection);
+  const countries = studio.countries || [];
+  const providers = studio.providers || [];
+  const providerOptions = providers.map((provider) => `<option value="${escapeAttr(provider.id)}" ${provider.available ? "" : "disabled"}>${escapeHtml(provider.label)}${provider.available ? "" : " · unavailable"}</option>`).join("");
+  const countryOptions = countries.map((country) => `<option value="${escapeAttr(country.code)}" data-select-label="${escapeAttr(`${countryFlag(country.code)} ${country.code.toUpperCase()} · ${country.name} · ${country.locale}`)}" ${country.code === studio.mainCountry ? "selected" : ""}>${countryFlag(country.code)} ${escapeHtml(country.name)}</option>`).join("");
+  const targetCards = countries.map((country) => {
+    const sameLocale = country.locale === studio.sourceLocale;
+    const disabled = country.isMain || sameLocale;
+    const checked = state.localizationTargets.includes(country.code);
+    return `<label class="localization-target ${checked ? "selected" : ""} ${disabled ? "disabled" : ""}">
+      <input type="checkbox" data-localization-target="${escapeAttr(country.code)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}>
+      <span class="localization-target-flag">${countryFlag(country.code)}</span>
+      <span><strong>${escapeHtml(country.name)}</strong><small>${escapeHtml(country.locale)} · ${escapeHtml(country.language)}</small></span>
+      ${country.isMain ? `<em>Main</em>` : sameLocale ? `<em>Main locale</em>` : ""}
+    </label>`;
+  }).join("");
+  const drafts = studio.drafts || [];
+  host.innerHTML = `<div class="localization-studio-head">
+    <div><p class="section-kicker">Listing localization</p><h2>Generate localized App Store listings</h2><p>Use one confirmed main listing as the source, choose target countries, then review and approve each localized field before pushing.</p></div>
+    <span class="localization-connection-badge ${connectionReady ? "connected" : ""}">${connectionReady ? "App Store Connect ready" : "App Store Connect not ready"}</span>
+  </div>
+  <div class="localization-source-grid">
+    <label class="select-wrap localization-main-select"><span>Main listing</span><select id="localizationMainCountry" aria-label="Main listing storefront">${countryOptions}</select></label>
+    <div class="localization-source-meta"><strong>${escapeHtml(studio.sourceLanguage)}</strong><span>${escapeHtml(studio.sourceLocale)} source · ${escapeHtml(studio.sourceFields?.name || "No saved metadata")}</span></div>
+    <label class="select-wrap localization-provider-select"><span>Local agent</span><select id="localizationProvider" aria-label="Listing localization agent"><option value="auto">Auto-detect</option>${providerOptions}</select></label>
+    <button type="button" class="button button-primary" data-localization-action="generate" ${state.localizationTargets.length ? "" : "disabled"}>Generate selected</button>
+  </div>
+  <details class="localization-connect" ${connection.configured ? "" : "open"}>
+    <summary>App Store Connect push settings</summary>
+    <div class="localization-connect-grid">
+      <label class="field"><span>Issuer ID</span><input id="localizationIssuerId" value="${escapeAttr(connection.issuerId || "")}" autocomplete="off"></label>
+      <label class="field"><span>Key ID</span><input id="localizationKeyId" value="${escapeAttr(connection.keyId || "")}" autocomplete="off"></label>
+      <label class="field"><span>Private key path</span><input id="localizationKeyPath" value="${escapeAttr(connection.keyPath || "")}" autocomplete="off" placeholder="~/.local-aso-tracker/app-store-connect/AuthKey_XXXX.p8"></label>
+    </div>
+    <div class="localization-connect-actions"><button type="button" class="button button-ghost" data-localization-action="save-connection">Save connection</button><button type="button" class="button button-ghost" data-localization-action="test-connection">Test connection</button><small>The private key is read locally, never returned to the browser, logged, or exported.</small></div>
+  </details>
+  <div class="localization-target-head"><div><strong>Generate these markets</strong><small>Countries sharing an App Store locale are generated once.</small></div><span>${state.localizationTargets.length} selected</span></div>
+  <div class="localization-targets">${targetCards}</div>
+  <p class="localization-scope-note">Text metadata only. Existing screenshots and previews stay unchanged in App Store Connect.</p>
+  <div class="localization-drafts">${drafts.length ? drafts.map(renderLocalizationDraft).join("") : `<div class="localization-studio-empty"><p>No localized listings yet. Choose target markets and generate the first drafts.</p></div>`}</div>`;
+  el("#localizationProvider").value = state.localizationProvider || studio.defaultProvider || "auto";
+  refreshCustomSelects();
+}
+
+function renderLocalizationDraft(draft) {
+  const fields = draft.fields || {};
+  const validation = draft.validation || {};
+  const issues = validation.issues || [];
+  const countryNames = (draft.targetCountries || []).map((code) => {
+    const country = (state.localizationStudio?.countries || []).find((item) => item.code === code);
+    return country ? `${countryFlag(code)} ${country.name}` : countryFlag(code);
+  }).join(" · ");
+  const errorCount = issues.filter((issue) => issue.severity === "error").length;
+  const connectionReady = localizationConnectionReady(state.localizationStudio?.connection);
+  return `<article class="localization-draft-card" data-localization-draft-id="${draft.id}">
+    <div class="localization-draft-head"><div><span class="localization-locale">${escapeHtml(draft.targetLocale)}</span><strong>${countryNames}</strong><small>${escapeHtml(draft.language)} · ${draft.iterationCount} review round${draft.iterationCount === 1 ? "" : "s"} · ${escapeHtml(providerLabel(draft.provider))}</small></div><span class="localization-status ${escapeAttr(draft.status)}">${escapeHtml(draft.status.replaceAll("_", " "))}</span></div>
+    <div class="localization-validation ${errorCount ? "error" : ""}">${errorCount ? `${errorCount} blocking issue${errorCount === 1 ? "" : "s"}` : `Audit score ${validation.score ?? "—"}/100`}</div>
+    ${issues.length ? `<div class="localization-issues">${issues.map((issue) => `<span class="${escapeAttr(issue.severity)}">${escapeHtml(issue.message)}</span>`).join("")}</div>` : ""}
+    <div class="localization-fields">
+      ${localizationField(draft, "name", "Name", 30)}
+      ${localizationField(draft, "subtitle", "Subtitle", 30)}
+      ${localizationField(draft, "keywords", "Keyword field", 100)}
+      ${localizationField(draft, "description", "Description", 4000, true)}
+      ${localizationField(draft, "promotionalText", "Promotional text", 170, true)}
+      ${localizationField(draft, "whatsNew", "What’s New", 4000, true)}
+    </div>
+    <div class="localization-draft-actions"><button type="button" class="button button-ghost" data-localization-action="update-draft">Save & re-audit</button><button type="button" class="button button-ghost" data-localization-action="regenerate-draft">Regenerate with agent</button><button type="button" class="button button-ghost" data-localization-action="approve-draft" ${draft.status !== "needs_review" || validation.hasErrors ? "disabled" : ""}>Approve</button><button type="button" class="button button-primary" data-localization-action="push-draft" ${draft.status !== "approved" || !connectionReady ? "disabled" : ""}>Push to Apple</button></div>
+  </article>`;
+}
+
+function localizationConnectionReady(connection) {
+  return Boolean(
+    connection?.ready
+    || (connection?.configured && connection?.keyExists && connection?.keyModeSafe),
+  );
+}
+
+function localizationField(draft, key, label, limit, multiline = false) {
+  const value = String(draft.fields?.[key] || "");
+  const attrs = `class="localization-field" data-localization-field="${escapeAttr(key)}" data-localization-draft="${draft.id}" maxlength="${limit}"`;
+  const input = multiline
+    ? `<textarea rows="3" ${attrs}>${escapeHtml(value)}</textarea>`
+    : `<input ${attrs} value="${escapeAttr(value)}">`;
+  return `<label class="field localization-field-shell"><span>${escapeHtml(label)} <small>${value.length}/${limit}</small></span>${input}</label>`;
+}
+
+async function localizationStudioAction(event) {
+  const button = event.target.closest("[data-localization-action]");
+  if (!button) return;
+  const action = button.dataset.localizationAction;
+  if (action === "reload") { await loadLocalizationStudio(); return; }
+  if (action === "save-connection") { await saveAppStoreConnectConnection(button); return; }
+  if (action === "test-connection") { await testAppStoreConnectConnection(button); return; }
+  if (action === "generate") { await generateSelectedLocalizationDrafts(button); return; }
+  const draftCard = button.closest("[data-localization-draft-id]");
+  if (!draftCard) return;
+  const draftId = Number(draftCard.dataset.localizationDraftId);
+  if (action === "update-draft") { await updateLocalizationDraft(draftId, draftCard); return; }
+  if (action === "approve-draft") { await approveLocalizationDraft(draftId); return; }
+  if (action === "regenerate-draft") { await regenerateLocalizationDraft(draftId); return; }
+  if (action === "push-draft") {
+    state.localizationPendingPushId = draftId;
+    const draft = (state.localizationStudio?.drafts || []).find((item) => item.id === draftId);
+    el("#localizationPushDescription").textContent = `Write the approved ${draft?.targetLocale || ""} metadata to App Store Connect? The default product page will be updated for every storefront using this locale.`;
+    el("#localizationPushModal").showModal();
+  }
+}
+
+function localizationStudioChange(event) {
+  if (event.target.matches("[data-localization-target]")) {
+    const code = event.target.dataset.localizationTarget;
+    const selected = new Set(state.localizationTargets);
+    if (event.target.checked) selected.add(code);
+    else selected.delete(code);
+    state.localizationTargets = [...selected];
+    event.target.closest(".localization-target")?.classList.toggle("selected", event.target.checked);
+    const generate = el('[data-localization-action="generate"]');
+    if (generate) generate.disabled = state.localizationTargets.length === 0;
+    const count = el(".localization-target-head > span");
+    if (count) count.textContent = `${state.localizationTargets.length} selected`;
+    return;
+  }
+  if (event.target.id === "localizationProvider") {
+    state.localizationProvider = event.target.value;
+    return;
+  }
+  if (event.target.id === "localizationMainCountry") {
+    saveLocalizationMainCountry(event.target.value);
+  }
+}
+
+async function saveLocalizationMainCountry(country) {
+  try {
+    state.localizationStudio = await request("/api/localization-studio/main", {
+      method: "POST",
+      body: { appId: state.appId, country },
+    });
+    state.localizationStudioLoaded = true;
+    state.localizationTargets = [];
+    renderLocalizationStudio();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function saveAppStoreConnectConnection(button) {
+  button.disabled = true;
+  try {
+    const connection = await request("/api/app-store-connect/settings", {
+      method: "POST",
+      body: appStoreConnectForm(),
+    });
+    state.localizationStudio.connection = connection;
+    renderLocalizationStudio();
+    toast("App Store Connect settings saved locally.");
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+async function testAppStoreConnectConnection(button) {
+  button.disabled = true;
+  try {
+    await request("/api/app-store-connect/settings", {
+      method: "POST",
+      body: appStoreConnectForm(),
+    });
+    await request("/api/app-store-connect/test", { method: "POST", body: {} });
+    toast("App Store Connect connection verified.");
+    await loadLocalizationStudio({ quiet: true });
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+function appStoreConnectForm() {
+  return {
+    issuerId: el("#localizationIssuerId")?.value.trim() || "",
+    keyId: el("#localizationKeyId")?.value.trim() || "",
+    keyPath: el("#localizationKeyPath")?.value.trim() || "",
+  };
+}
+
+async function generateSelectedLocalizationDrafts(button) {
+  if (!state.localizationTargets.length) {
+    toast("Select at least one target country.", true);
+    return;
+  }
+  button.disabled = true;
+  const original = button.textContent;
+  button.textContent = "Generating…";
+  try {
+    await request("/api/localization-studio/generate", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        mainCountry: el("#localizationMainCountry")?.value || state.localizationStudio.mainCountry,
+        targetCountries: state.localizationTargets,
+        provider: el("#localizationProvider")?.value || state.localizationProvider,
+      },
+    });
+    toast("Localized listing drafts generated.");
+    state.localizationTargets = [];
+    await loadLocalizationStudio({ quiet: true });
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; button.textContent = original; }
+}
+
+async function updateLocalizationDraft(draftId, card) {
+  const fields = {};
+  card.querySelectorAll("[data-localization-field]").forEach((input) => {
+    fields[input.dataset.localizationField] = input.value;
+  });
+  try {
+    const draft = await request("/api/localization-studio/update", {
+      method: "POST",
+      body: { draftId, fields },
+    });
+    replaceLocalizationDraft(draft);
+    renderLocalizationStudio();
+    toast("Localization saved and audited.");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function approveLocalizationDraft(draftId) {
+  try {
+    const draft = await request("/api/localization-studio/approve", {
+      method: "POST",
+      body: { draftId },
+    });
+    replaceLocalizationDraft(draft);
+    renderLocalizationStudio();
+    toast("Localization approved for push.");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function regenerateLocalizationDraft(draftId) {
+  const draft = (state.localizationStudio?.drafts || []).find((item) => item.id === draftId);
+  if (!draft) return;
+  try {
+    await request("/api/localization-studio/generate", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        mainCountry: state.localizationStudio.mainCountry,
+        targetCountries: draft.targetCountries,
+        provider: el("#localizationProvider")?.value || state.localizationProvider,
+      },
+    });
+    await loadLocalizationStudio({ quiet: true });
+    toast("Localization regenerated and audited.");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function confirmLocalizationPush() {
+  const draftId = state.localizationPendingPushId;
+  if (!draftId) return;
+  const button = el("#confirmLocalizationPush");
+  button.disabled = true;
+  try {
+    const updated = await request("/api/localization-studio/push", {
+      method: "POST",
+      body: { draftId },
+    });
+    el("#localizationPushModal").close();
+    state.localizationPendingPushId = null;
+    replaceLocalizationDraft(updated);
+    renderLocalizationStudio();
+    toast("Localized metadata pushed to App Store Connect.");
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+function replaceLocalizationDraft(updated) {
+  if (!state.localizationStudio) return;
+  const drafts = [...(state.localizationStudio.drafts || [])];
+  const index = drafts.findIndex((draft) => draft.id === updated.id);
+  if (index >= 0) drafts[index] = updated;
+  else drafts.push(updated);
+  state.localizationStudio.drafts = drafts;
 }
 
 function renderHealthScore() {
@@ -1864,8 +2223,7 @@ async function openNicheWorkspace() {
   state.nicheView = true;
   el("#appContentWrap").hidden = true;
   el("#nicheWorkspace").hidden = false;
-  el("#nicheNavButton").classList.add("active");
-  all("[data-tab-target]").forEach((button) => button.classList.remove("active"));
+  setWorkspaceNav(true);
   el("#sidebar").classList.remove("open");
   if (!state.nicheLoaded) await loadNicheWorkspace();
 }
@@ -1874,7 +2232,7 @@ function closeNicheWorkspace() {
   state.nicheView = false;
   el("#nicheWorkspace").hidden = true;
   el("#appContentWrap").hidden = false;
-  el("#nicheNavButton").classList.remove("active");
+  setWorkspaceNav(false);
 }
 
 async function loadNicheWorkspace(boardId) {
@@ -2178,7 +2536,7 @@ function renderAppleAds() {
       <div class="table-scroll"><table class="paid-table paid-keyword-table"><thead><tr>${paidSortHeader("Keyword", "keyword")}${paidSortHeader("Match types", "matchTypes")}${paidSortHeader("Status", "status")}${paidSortHeader("Campaigns", "campaignCount")}${paidSortHeader("ASO rank", "asoRank")}${paidSortHeader("Bid", "bid")}${paidSortHeader("Spend", "spend")}${paidSortHeader("Impr.", "impressions")}${paidSortHeader("Taps", "taps")}${paidSortHeader("Installs", "installs")}</tr></thead><tbody>${visibleKeywordCountries.map(appleAdsCountryGroup).join("") || `<tr><td colspan="10">No enabled targeting keywords have been synced. Turn on Show paused or choose another country.</td></tr>`}</tbody></table></div>
     </section>
     <section class="card paid-suggestions-card">
-      <div class="data-head"><div><p class="section-kicker">Apple suggestions</p><h2>Related keywords to target</h2><p>Seeded by the highest-ranking ASO keywords for ${countryFlag(state.country)} ${state.country.toUpperCase()}. Scores are Apple’s relative suggestion popularity, not search volume.</p></div><span class="availability-badge">${suggestions.length} suggestions</span></div>
+      <div class="data-head"><div><p class="section-kicker">Apple suggestions</p><h2>Related keywords to target</h2><p>Seeded by the highest-ranking ASO keywords for ${countryFlag(state.country)} ${state.country.toUpperCase()}. Popularity is Apple Ads’ own 5–100 score, shown only where it was measured for that exact keyword; it is not search volume.</p></div><span class="availability-badge">${suggestions.length} suggestions</span></div>
       <div class="paid-suggestion-grid">${suggestions.slice(0, 30).map(appleAdsSuggestionCard).join("") || `<div class="paid-search-empty"><p>No suggestions have been synced for this market.</p></div>`}</div>
     </section>`;
 }
@@ -2403,14 +2761,560 @@ async function syncAppleAds() {
   }
 }
 
+function resetAuditState() {
+  window.clearTimeout(state.auditPollTimer);
+  state.audit = null;
+  state.auditLoaded = false;
+  state.auditLoading = false;
+  state.auditCountry = null;
+  state.auditIterationCountry = null;
+  state.auditProvider = "auto";
+  state.auditAgentOpen = false;
+}
+
+async function loadAudit({ quiet = false } = {}) {
+  if (!state.appId) {
+    state.audit = null;
+    renderAudit();
+    return;
+  }
+  if (state.auditLoading) return;
+  state.auditLoading = true;
+  if (!quiet) renderAuditLoading();
+  try {
+    const auditCountry = state.auditCountry || state.country;
+    state.audit = await request(
+      `/api/audits?appId=${encodeURIComponent(state.appId)}&country=${encodeURIComponent(auditCountry)}&device=${encodeURIComponent(state.device)}`,
+    );
+    state.auditLoaded = true;
+    if (state.audit.run?.scope) {
+      state.auditCountry = state.audit.run.country || state.auditCountry;
+      state.auditIterationCountry = state.auditCountry || state.auditIterationCountry || state.country;
+    }
+    if (!state.auditProvider || state.auditProvider === "auto") {
+      state.auditProvider = state.audit.defaultProvider || "auto";
+    }
+    renderAudit();
+    scheduleAuditPoll();
+  } catch (error) {
+    el("#auditContent").innerHTML = `<div class="card audit-error"><p>${escapeHtml(error.message)}</p><button type="button" class="button button-ghost" data-audit-action="reload">Retry</button></div>`;
+  } finally {
+    state.auditLoading = false;
+  }
+}
+
+function scheduleAuditPoll() {
+  window.clearTimeout(state.auditPollTimer);
+  const run = state.audit?.run;
+  if (!run || !["queued", "running"].includes(run.status)) return;
+  state.auditPollTimer = window.setTimeout(async () => {
+    try {
+      state.audit = await request(
+        `/api/audits/${run.id}?appId=${encodeURIComponent(state.appId)}&country=${encodeURIComponent(state.auditCountry || state.country)}&device=${encodeURIComponent(state.device)}`,
+      );
+      renderAudit();
+      scheduleAuditPoll();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }, 1500);
+}
+
+function renderAuditLoading() {
+  el("#auditContent").innerHTML = `<div class="audit-loading card"><div class="skeleton audit-loading-skeleton"></div><div class="skeleton audit-loading-skeleton short"></div></div>`;
+}
+
+function auditProviderOptions() {
+  const providers = state.audit?.providers || [];
+  return `<option value="auto">Auto-detect</option>${providers.map((provider) => `<option value="${escapeAttr(provider.id)}" ${provider.available ? "" : "disabled"}>${escapeHtml(provider.label)}${provider.available ? "" : " · unavailable"}</option>`).join("")}`;
+}
+
+function renderAudit() {
+  const host = el("#auditContent");
+  if (!state.appId) {
+    host.innerHTML = `<section class="card audit-empty"><div class="empty-icon">⌕</div><h2>Choose an app to audit</h2><p>Select an app in the sidebar to run a local market audit.</p></section>`;
+    return;
+  }
+  if (!state.audit) {
+    renderAuditLoading();
+    return;
+  }
+  const run = state.audit.run;
+  const countries = (state.data.countries || []).filter((country) => country.active);
+  if (!state.auditCountry) {
+    state.auditCountry = state.country;
+  }
+  const countryOptions = countries.map((country) => {
+    const flag = countryFlag(country.code);
+    return `<option value="${escapeAttr(country.code)}" data-select-label="${escapeAttr(`${flag} ${country.code.toUpperCase()} · ${country.name}`)}" ${country.code === (state.auditCountry || state.country) ? "selected" : ""}>${flag} ${country.code.toUpperCase()}</option>`;
+  }).join("");
+  const providerAvailable = (state.audit.providers || []).some((provider) => provider.available);
+  const agentOpen = state.auditAgentOpen || !providerAvailable;
+  const activeRun = run && ["queued", "running"].includes(run.status);
+  const auditLanguage = state.audit.auditLanguage || "English";
+  host.innerHTML = `
+    <section class="card audit-control-card">
+      <div class="audit-control-copy"><p class="section-kicker">Specialist local audit</p><h2>Audit your app</h2><p>Three focused passes find market-language opportunities, verify every phrase against Apple, then keep only findings supported by stored evidence.</p></div>
+      <div class="audit-control-actions">
+        <button type="button" class="button button-ghost" data-audit-action="toggle-agent">${agentOpen ? "Hide AI agent" : "Show AI agent"}</button>
+        <button type="button" class="button button-primary" data-audit-action="${activeRun ? "cancel" : "run"}" ${activeRun ? "" : (providerAvailable ? "" : "disabled")}>${activeRun ? "Cancel audit" : run ? "Rerun audit" : "Run audit"}</button>
+      </div>
+    </section>
+    <section class="card audit-scope-card">
+      <span class="audit-scope-label">Audit market</span>
+      <label class="select-wrap audit-country-select"><span>Country</span><select id="auditCountrySelect" aria-label="Audit country">${countryOptions}</select></label>
+      <label class="select-wrap audit-provider-select"><span>Local agent</span><select id="auditProviderSelect" aria-label="Audit local agent">${auditProviderOptions()}</select></label>
+      <span class="audit-device-label">${escapeHtml(auditLanguage)} · ${deviceName(state.device)} · ${countries.length} available storefront${countries.length === 1 ? "" : "s"}</span>
+    </section>
+    ${agentOpen ? renderAuditAgentPanel() : ""}
+    ${run ? renderAuditRun(run, countries) : renderAuditEmpty(run, providerAvailable)}
+  `;
+  const providerSelect = el("#auditProviderSelect");
+  if (providerSelect) {
+    providerSelect.value = state.auditProvider || state.audit.defaultProvider || "auto";
+  }
+  refreshCustomSelects();
+}
+
+function renderAuditAgentPanel() {
+  const paths = state.audit?.agentPaths || {};
+  const providers = state.audit?.providers || [];
+  return `<section class="card audit-agent-panel" id="auditAgentPanel">
+    <div class="audit-agent-head"><div><p class="section-kicker">Local agent connection</p><h3>Use Codex or Claude on this computer</h3><p>Phrase discovery, native-language review, and the final findings editor run through the selected CLI. Apple and the local database provide every measured result.</p></div><span class="audit-agent-badge ${providers.some((provider) => provider.available) ? "available" : ""}">${providers.some((provider) => provider.available) ? "Local CLI detected" : "No local CLI detected"}</span></div>
+    <div class="audit-agent-grid">
+      <label class="field"><span>Codex executable <small>Optional path</small></span><input id="auditCodexPath" value="${escapeAttr(paths.codex || "")}" placeholder="Auto-detect from PATH"></label>
+      <label class="field"><span>Claude executable <small>Optional path</small></span><input id="auditClaudePath" value="${escapeAttr(paths.claude || "")}" placeholder="Auto-detect from PATH"></label>
+    </div>
+    <div class="audit-agent-actions"><button type="button" class="button button-ghost" data-audit-action="test-agent">Test connection</button><button type="button" class="button button-ghost" data-audit-action="save-agent">Save local agent</button><span class="audit-agent-note" id="auditAgentNote"></span></div>
+  </section>`;
+}
+
+function renderAuditEmpty(run, providerAvailable) {
+  return `<section class="card audit-empty">
+    <div class="empty-icon">◇</div>
+    <h3>${run ? "No completed audit yet" : "Start with your app’s real intent"}</h3>
+    <p>${providerAvailable ? "Run a local audit to compare the listing with the phrases people actually search for. Results stay on this computer." : "Configure a local Codex or Claude CLI above to run the audit."}</p>
+    ${!providerAvailable ? `<button type="button" class="button button-primary" data-audit-action="toggle-agent">Open agent setup</button>` : ""}
+  </section>`;
+}
+
+function auditStatusLabel(status) {
+  return ({
+    queued: "Queued",
+    analyzing: "Analyzing",
+    localizing: "Reviewing language",
+    checking: "Checking Apple",
+    synthesizing: "Editing findings",
+    running: "Running",
+    success: "Complete",
+    partial: "Partial",
+    error: "Needs retry",
+    cancelled: "Cancelled",
+  })[status] || "Pending";
+}
+
+function renderAuditRun(run, countries) {
+  const countryResults = run.countries || [];
+  const visibleCountries = countryResults.filter(
+    (country) => country.code === (state.auditCountry || state.country),
+  );
+  const findings = visibleCountries.flatMap((country) => (country.findings || []).map((finding) => ({ ...finding, country: country.code, countryData: country }))).slice(0, 6);
+  const scoredCountries = visibleCountries.filter((country) => country.score != null);
+  const score = run.score ?? (scoredCountries.length ? Math.round(scoredCountries.reduce((sum, country) => sum + country.score, 0) / scoredCountries.length) : null);
+  const progress = run.progress || { completed: 0, total: countryResults.length };
+  const allKeywords = auditKeywordRows(visibleCountries);
+  return `<section class="audit-progress card"><div><span class="audit-status-pill ${run.status}">${escapeHtml(auditStatusLabel(run.status))}</span><strong>${escapeHtml(scopeTitle(visibleCountries))}</strong><small>${escapeHtml(state.audit?.auditLanguage || "English")} · ${deviceName(state.device)} · ${escapeHtml(providerLabel(run.provider))} · discovery → language → Apple → editor</small></div><div class="audit-progress-track"><i style="width:${progress.total ? Math.round(progress.completed / progress.total * 100) : 0}%"></i></div></section>
+    <div class="audit-overview-grid">
+      <section class="card audit-score-card"><p class="section-kicker">Country audit</p><div class="audit-score-gauge"><svg viewBox="0 0 180 104" aria-hidden="true"><path class="audit-score-track" d="M 20 92 A 70 70 0 0 1 160 92" pathLength="100"></path><path class="audit-score-value" d="M 20 92 A 70 70 0 0 1 160 92" pathLength="100" stroke="${auditScoreTone(score)}" stroke-dasharray="${score ?? 0} 100"></path></svg><div class="audit-score-number"><strong>${score ?? "—"}</strong><small>/ 100</small></div></div><h3>${escapeHtml(auditScoreLabel(score))}</h3><p>${score == null ? "Complete a market audit to calculate a score." : "A deterministic view of visibility, listing alignment, localization, and competition opportunity."}</p><details class="audit-method"><summary>How this score works</summary><p>40% ranking visibility · 30% listing intent coverage · 20% localization metadata · 10% competition opportunity.</p></details></section>
+      <section class="card audit-findings-card"><div class="audit-section-head"><div><p class="section-kicker">Evidence-grounded insights</p><h2>What to fix next</h2></div><span class="audit-country-count">${visibleCountries[0] ? `${countryFlag(visibleCountries[0].code)} ${escapeHtml(visibleCountries[0].name)}` : "Country audit"}</span></div>${findings.length ? `<div class="audit-findings">${findings.map((finding, index) => renderAuditFinding(finding, index)).join("")}</div>` : `<div class="audit-placeholder"><p>Run the audit to generate findings from your listing, tracked ranks, and Apple search results.</p></div>`}</section>
+    </div>
+    ${allKeywords.length ? renderAuditKeywords(allKeywords, visibleCountries) : `<section class="card audit-empty"><h3>No keyword results yet</h3><p>Completed market results will appear here.</p></section>`}
+    ${renderAuditPaidKeywords(visibleCountries[0])}
+    ${run && !["queued", "running"].includes(run.status) ? renderAuditDiscovery(run, visibleCountries) : ""}
+  `;
+}
+
+function renderAuditFinding(finding, index) {
+  const terms = (finding.terms || []).map((term) => renderAuditFindingTerm(term, finding.country, finding.countryData)).join("");
+  return `<article class="audit-finding ${escapeAttr(finding.tone || "info")}"><span class="audit-finding-number">${index + 1}</span><div><div class="audit-finding-title"><strong>${escapeHtml(finding.title)}</strong><span>${escapeHtml((finding.category || "insight").replaceAll("_", " "))}</span></div><p>${escapeHtml(finding.detail)}</p>${terms ? `<div class="audit-finding-terms"><span class="audit-finding-country">${countryFlag(finding.country)}</span>${terms}</div>` : ""}</div></article>`;
+}
+
+function renderAuditFindingTerm(term, country, countryData) {
+  const normalized = term.toLocaleLowerCase();
+  const audited = (countryData?.keywords || []).find((item) => item.keyword.toLocaleLowerCase() === normalized);
+  const tracked = (state.data?.rankings || []).find((item) => (
+    item.country === country
+    && item.device === state.device
+    && item.keyword.toLocaleLowerCase() === normalized
+  ));
+  if (!audited && !tracked) {
+    return `<span class="audit-finding-keyword"><mark>${escapeHtml(term)}</mark></span>`;
+  }
+  const rank = audited
+    ? auditRankLabel(audited)
+    : tracked
+      ? tracked.found && tracked.rank
+        ? `#${tracked.rank}`
+        : `>${tracked.resultLimit || 200}`
+      : "—";
+  const demand = auditDemand(audited, tracked);
+  const difficulty = audited?.difficulty ?? tracked?.difficultyEstimate ?? "—";
+  const opportunity = audited?.opportunity;
+  return `<span class="audit-finding-keyword"><mark>${escapeHtml(term)}</mark><span class="audit-finding-metrics"><span>Rank <b>${escapeHtml(String(rank))}</b></span><span title="${escapeAttr(demand.title)}">${demand.short} <b>${escapeHtml(demand.value)}</b></span><span>Diff <b>${escapeHtml(String(difficulty))}</b></span>${opportunity != null ? `<span title="Opportunity score: Apple popularity discounted by difficulty and current rank">Opp <b>${opportunity}</b></span>` : ""}</span></span>`;
+}
+
+// Apple Ads popularity when measured for this exact query, else the ratings-based estimate.
+function auditDemand(audited, tracked) {
+  const popularity = audited?.popularityStatus === "measured" ? audited.popularity
+    : tracked?.popularityStatus === "measured" ? tracked.popularity : null;
+  if (popularity != null) {
+    return {
+      short: "Pop",
+      label: "Popularity",
+      value: popularity <= APPLE_POPULARITY_FLOOR ? "Low" : String(popularity),
+      score: popularity,
+      measured: true,
+      title: popularity <= APPLE_POPULARITY_FLOOR
+        ? "Apple Ads popularity at its floor: too few searches to rank"
+        : "Apple Ads search popularity for this exact query (5–100)",
+    };
+  }
+  const estimate = audited?.volume ?? tracked?.volumeEstimate;
+  return {
+    short: "Vol",
+    label: "Est. volume",
+    value: estimate == null ? "—" : `~${estimate}`,
+    score: estimate ?? null,
+    measured: false,
+    title: "Local estimate from matching-app ratings; not Apple data",
+  };
+}
+
+function auditKeywordRows(countries) {
+  const rows = new Map();
+  for (const country of countries) {
+    for (const keyword of (country.keywords || [])) {
+      const key = keyword.keyword.toLocaleLowerCase();
+      if (!rows.has(key)) rows.set(key, { keyword: keyword.keyword, byCountry: {}, intent: keyword.intent });
+      rows.get(key).byCountry[country.code] = keyword;
+    }
+  }
+  // Best measured opportunity first; unmeasured phrases keep alphabetical order after them.
+  const primary = countries[0]?.code;
+  const opportunityOf = (row) => row.byCountry[primary]?.opportunity ?? null;
+  return [...rows.values()].sort((left, right) => {
+    const a = opportunityOf(left);
+    const b = opportunityOf(right);
+    if (a != null || b != null) {
+      if (a == null) return 1;
+      if (b == null) return -1;
+      if (a !== b) return b - a;
+    }
+    return left.keyword.localeCompare(right.keyword);
+  });
+}
+
+// Searches for other apps' names. App Review Guideline 2.3.7 keeps them out of the
+// listing, so they are presented as Apple Ads keywords only.
+function renderAuditPaidKeywords(country) {
+  const items = country?.paidKeywords || [];
+  if (!items.length) return "";
+  const cards = items.map((item) => {
+    const demand = auditDemand(item, null);
+    const tone = !demand.measured ? "low" : demand.score >= 20 ? "good" : demand.score > APPLE_POPULARITY_FLOOR ? "mid" : "low";
+    return `<article class="audit-keyword-card audit-paid-card"><strong class="audit-paid-term">${escapeHtml(item.keyword)}</strong><small>Searches for ${escapeHtml(item.brandOwner || "another app")}</small><div class="audit-keyword-metrics">${renderAuditMetric("Your rank", auditRankLabel(item), "rank")} ${renderAuditMetric(demand.label, demand.value, tone, demand.title)}</div><button type="button" class="text-button" data-audit-action="track-keyword" data-audit-country="${escapeAttr(country.code)}" data-audit-keyword="${escapeAttr(item.keyword)}">Track rank</button></article>`;
+  }).join("");
+  return `<section class="card audit-keywords-card audit-paid-keywords"><div class="audit-section-head"><div><p class="section-kicker">Apple Ads only</p><h2>Competitor names people search</h2><p class="audit-keyword-note">App Store rules forbid other apps’ names in your title, subtitle, and keyword field. Bid on these in Apple Ads instead; tracking their rank shows whether Apple already lists you.</p></div></div><div class="audit-keyword-list">${cards}</div></section>`;
+}
+
+function renderAuditKeywords(rows, countries) {
+  const country = countries[0];
+  return `<section class="card audit-keywords-card"><div class="audit-section-head"><div><p class="section-kicker">Checked against Apple</p><h2>Recommended keywords</h2><p class="audit-keyword-note">Rank comes from Apple public search; popularity is Apple Ads’ score for the exact query when measured (otherwise a ~ ratings-based estimate); difficulty is an estimate. Sorted by opportunity.</p></div><button type="button" class="button button-primary" data-audit-action="track-selected">Track selected</button></div><div class="audit-keyword-list">${rows.map((row) => renderAuditKeywordCard(row, country)).join("")}</div></section>`;
+}
+
+function renderAuditDiscovery(run, countries) {
+  const providers = state.audit?.providers || [];
+  const available = providers.some((provider) => provider.available);
+  const countryCodes = countries.map((country) => country.code);
+  const selectedCountry = countryCodes.includes(state.auditIterationCountry)
+    ? state.auditIterationCountry
+    : countryCodes[0] || state.country;
+  const countryOptions = countries.map((country) => `<option value="${escapeAttr(country.code)}" ${country.code === selectedCountry ? "selected" : ""}>${countryFlag(country.code)} ${escapeHtml(country.name)}</option>`).join("");
+  return `<section class="card audit-discovery-card"><div class="audit-discovery-copy"><p class="section-kicker">Iterate on discovery</p><h2>Find more interesting keywords</h2><p>Each round uses the app context, existing audit phrases, tracked ranks, and your instruction. New phrases are checked before they are added.</p></div><div class="audit-discovery-controls">${countries.length > 1 ? `<label class="select-wrap audit-discovery-country"><span>Market</span><select id="auditDiscoveryCountry" aria-label="Keyword discovery market">${countryOptions}</select></label>` : ""}<input id="auditDiscoveryInput" maxlength="500" placeholder="e.g. Add 5 phrases for beginners, transits, and natal charts"><button type="button" class="button button-primary" data-audit-action="discover-more" ${available ? "" : "disabled"}>Discover more</button></div><small class="audit-discovery-note">${run.provider ? `Last round: ${escapeHtml(providerLabel(run.provider))}` : "Local model required"} · Results are stored in this audit and previous phrases are preserved.</small></section>`;
+}
+
+function renderAuditKeywordCard(row, country) {
+  const item = row.byCountry[country.code];
+  return `<article class="audit-keyword-card"><label class="audit-keyword-pick"><input type="checkbox" data-audit-pick="${escapeAttr(row.keyword)}" data-audit-pick-country="${escapeAttr(country.code)}">${escapeHtml(row.keyword)}</label><small>${escapeHtml(item?.intent || row.intent || "Search intent")}</small><div class="audit-keyword-metrics">${renderAuditMetric("Rank", auditRankLabel(item), "rank")} ${renderAuditDemandMetric(item)} ${renderAuditMetric("Difficulty", item?.difficulty ?? "—", item?.difficulty >= 67 ? "hard" : item?.difficulty >= 34 ? "mid" : "good")}${item?.opportunity != null ? ` ${renderAuditMetric("Opportunity", item.opportunity, item.opportunity >= 10 ? "good" : item.opportunity >= 4 ? "mid" : "low", "Apple popularity discounted by the difficulty estimate and the attention the current rank already captures")}` : ""}</div><button type="button" class="text-button" data-audit-action="track-keyword" data-audit-country="${escapeAttr(country.code)}" data-audit-keyword="${escapeAttr(row.keyword)}">Track keyword</button></article>`;
+}
+
+function renderAuditMetric(label, value, tone, title = "") {
+  return `<span class="audit-metric ${tone}"${title ? ` title="${escapeAttr(title)}"` : ""}><small>${label}</small><strong>${escapeHtml(String(value))}</strong></span>`;
+}
+
+function renderAuditDemandMetric(item) {
+  const demand = auditDemand(item, null);
+  const tone = demand.score == null ? "low"
+    : demand.measured
+      ? demand.score >= 20 ? "good" : demand.score > APPLE_POPULARITY_FLOOR ? "mid" : "low"
+      : demand.score >= 35 ? "good" : "mid";
+  return renderAuditMetric(demand.label, demand.value, tone, demand.title);
+}
+
+function auditRankLabel(item) {
+  if (!item) return "—";
+  if (item.status === "error") return "!";
+  if (item.found && item.rank) return `#${item.rank}`;
+  return item.found === false ? `>${item.resultLimit || 200}` : "—";
+}
+
+function auditScoreLabel(score) {
+  if (score == null) return "Not audited";
+  if (score >= 80) return "Strong foundation";
+  if (score >= 60) return "Promising";
+  if (score >= 40) return "Needs attention";
+  return "Critical gaps";
+}
+
+function auditScoreTone(score) {
+  if (score == null) return "var(--ink-tertiary)";
+  if (score >= 70) return "var(--green)";
+  if (score >= 40) return "var(--amber)";
+  return "var(--red)";
+}
+
+function scopeTitle(countries) {
+  if (countries.length) return `${countryFlag(countries[0].code)} ${countries[0].name}`;
+  const selected = (state.data?.countries || []).find(
+    (country) => country.code === (state.auditCountry || state.country),
+  );
+  return selected
+    ? `${countryFlag(selected.code)} ${selected.name}`
+    : "Country audit";
+}
+
+function providerLabel(provider) {
+  return ({ codex: "Codex", claude: "Claude", auto: "Auto-detected local agent" })[provider] || "Local agent";
+}
+
+async function auditAction(event) {
+  const button = event.target.closest("[data-audit-action]");
+  if (!button) return;
+  const action = button.dataset.auditAction;
+  if (action === "reload") { await loadAudit(); return; }
+  if (action === "toggle-agent") { state.auditAgentOpen = !state.auditAgentOpen; renderAudit(); return; }
+  if (action === "run") { await startAudit(); return; }
+  if (action === "cancel") { await cancelAudit(); return; }
+  if (action === "test-agent") { await testAuditAgent(button); return; }
+  if (action === "save-agent") { await saveAuditAgent(button); return; }
+  if (action === "track-keyword") { await trackAuditKeyword(button); return; }
+  if (action === "track-selected") { await trackSelectedAuditKeywords(); }
+  if (action === "discover-more") { await discoverMoreAuditKeywords(button); }
+}
+
+async function auditChange(event) {
+  if (event.target.id === "auditProviderSelect") {
+    state.auditProvider = event.target.value;
+    return;
+  }
+  if (event.target.id === "auditCountrySelect") {
+    state.auditCountry = event.target.value;
+    state.auditIterationCountry = state.auditCountry;
+    await loadAudit();
+    return;
+  }
+  if (event.target.id === "auditDiscoveryCountry") {
+    state.auditIterationCountry = event.target.value;
+    return;
+  }
+}
+
+async function startAudit() {
+  if (!state.appId) return;
+  const provider = el("#auditProviderSelect")?.value || state.auditProvider || "auto";
+  try {
+    state.audit = await request("/api/audits", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        scope: "country",
+        country: state.auditCountry || state.country,
+        device: state.device,
+        provider,
+      },
+    });
+    state.auditLoaded = true;
+    renderAudit();
+    scheduleAuditPoll();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function cancelAudit() {
+  const run = state.audit?.run;
+  if (!run) return;
+  try {
+    state.audit = await request("/api/audits/cancel", {
+      method: "POST",
+      body: { appId: state.appId, runId: run.id },
+    });
+    renderAudit();
+  } catch (error) { toast(error.message, true); }
+}
+
+async function testAuditAgent(button) {
+  const provider = el("#auditProviderSelect")?.value || state.auditProvider || "auto";
+  button.disabled = true;
+  try {
+    const result = await request("/api/agent/test", {
+      method: "POST",
+      body: {
+        provider,
+        codexPath: el("#auditCodexPath")?.value || "",
+        claudePath: el("#auditClaudePath")?.value || "",
+      },
+    });
+    el("#auditAgentNote").textContent = `${providerLabel(result.provider)}: ${result.version || "available"}`;
+    toast(`${providerLabel(result.provider)} is available locally.`);
+  } catch (error) {
+    el("#auditAgentNote").textContent = error.message;
+    toast(error.message, true);
+  } finally { button.disabled = false; }
+}
+
+async function saveAuditAgent(button) {
+  const provider = el("#auditProviderSelect")?.value || state.auditProvider || "auto";
+  button.disabled = true;
+  try {
+    await request("/api/settings/agent", {
+      method: "POST",
+      body: {
+        provider,
+        codexPath: el("#auditCodexPath")?.value || "",
+        claudePath: el("#auditClaudePath")?.value || "",
+      },
+    });
+    toast("Local agent settings saved.");
+    await loadAudit({ quiet: true });
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+}
+
+async function trackAuditKeyword(button) {
+  await trackAuditGroups([{ country: button.dataset.auditCountry, keyword: button.dataset.auditKeyword }]);
+}
+
+async function trackSelectedAuditKeywords() {
+  const selected = all("#auditContent [data-audit-pick]:checked").map((input) => ({
+    country: input.dataset.auditPickCountry || state.auditCountry || state.country,
+    keyword: input.dataset.auditPick,
+  }));
+  const picks = [...new Map(selected.map((pick) => [`${pick.country}:${pick.keyword}`, pick])).values()];
+  if (!picks.length) { toast("Select at least one keyword first.", true); return; }
+  await trackAuditGroups(picks);
+}
+
+async function trackAuditGroups(picks) {
+  if (!state.appId || !picks.length) return;
+  const groups = new Map();
+  for (const pick of picks) {
+    if (!pick.keyword || !pick.country) continue;
+    const key = pick.country;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(pick.keyword);
+  }
+  setBusy(true);
+  try {
+    for (const [country, keywords] of groups.entries()) {
+      await request("/api/keywords", {
+        method: "POST",
+        body: {
+          appId: state.appId,
+          keywords: [...new Set(keywords)].join(", "),
+          countries: [country],
+          devices: [state.device],
+        },
+      });
+    }
+    toast(`${picks.length} audit keyword${picks.length === 1 ? "" : "s"} added to tracking.`);
+    await loadDashboard({ quiet: true });
+  } catch (error) { toast(error.message, true); }
+  finally { setBusy(false); }
+}
+
+async function discoverMoreAuditKeywords(button) {
+  const run = state.audit?.run;
+  if (!run || !state.appId) return;
+  const country = el("#auditDiscoveryCountry")?.value
+    || state.auditIterationCountry
+    || state.auditCountry
+    || state.country;
+  const instruction = el("#auditDiscoveryInput")?.value.trim()
+    || "Find 5 more specific, high-intent keywords for this app that are not already in the audit.";
+  button.disabled = true;
+  try {
+    const result = await request("/api/audits/expand", {
+      method: "POST",
+      body: {
+        appId: state.appId,
+        runId: run.id,
+        country,
+        instruction,
+      },
+    });
+    state.audit = result;
+    state.auditIterationCountry = country;
+    renderAudit();
+    toast(`${result.iteration?.added || 0} new ${country.toUpperCase()} keyword${result.iteration?.added === 1 ? "" : "s"} checked and added to this audit.`);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handleTabKeydown(event) {
+  const tabs = all("[role=tab][data-tab]");
+  const index = tabs.indexOf(document.activeElement);
+  if (index < 0) return;
+  const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  const target = tabs[(next + tabs.length) % tabs.length];
+  tabs.forEach((tab) => { tab.tabIndex = tab === target ? 0 : -1; });
+  target.focus();
+}
+
 function switchTab(tab, scroll = true) {
   state.tab = tab;
   all("[data-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === tab));
-  all("[data-tab]").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
-  all("[data-tab-target]").forEach((button) => button.classList.toggle("active", button.dataset.tabTarget === tab));
+  all("[data-tab]").forEach((button) => {
+    const selected = button.dataset.tab === tab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  setWorkspaceNav(false);
   el("#addKeywordButton").hidden = tab !== "rankings";
   el("#runCheckButton").hidden = tab !== "rankings";
-  if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+  if (scroll) window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+
+function setWorkspaceNav(niche) {
+  all("[data-tab-target]").forEach((button) => {
+    button.classList.toggle("active", !niche);
+    button.toggleAttribute("aria-current", !niche);
+    if (!niche) button.setAttribute("aria-current", "page");
+  });
+  const nicheButton = el("#nicheNavButton");
+  nicheButton.classList.toggle("active", niche);
+  nicheButton.toggleAttribute("aria-current", niche);
+  if (niche) nicheButton.setAttribute("aria-current", "page");
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 async function request(url, options = {}) {
@@ -2482,17 +3386,45 @@ function metricTrend(trend, label, periodDays) {
   const direction = trend.percent > 0 ? "+" : trend.percent < 0 ? "−" : "";
   return `<span class="metric-trend ${tone}" title="${escapeAttr(title)}">${direction}${Math.abs(trend.percent).toFixed(1)}% <small>${periodDays}d</small></span>`;
 }
-function estimateCell(value, kind, sampleSize) {
-  const shortLabel = kind === "difficulty" ? "Difficulty" : "Volume";
-  if (value == null) return `<span class="estimate unknown" title="Run a new check to calculate this estimate."><span class="estimate-label">${shortLabel}</span><strong>—</strong></span>`;
+const APPLE_POPULARITY_FLOOR = 5;
+
+function popularityTone(row) {
+  if (row.popularityStatus === "measured") {
+    return row.popularity >= 30 ? " volume-strong" : row.popularity > APPLE_POPULARITY_FLOOR ? " volume-mid" : " volume-low";
+  }
+  const value = row.volumeEstimate;
+  return value == null ? "" : value >= 35 ? " volume-strong" : value >= 15 ? " volume-mid" : " volume-low";
+}
+
+function popularityCell(row) {
+  const market = row.country.toUpperCase();
+  if (row.popularityStatus === "measured") {
+    const measured = row.popularityFetchedAt ? ` Measured ${formatDate(row.popularityFetchedAt)}.` : "";
+    if (row.popularity <= APPLE_POPULARITY_FLOOR) {
+      return `<span class="estimate popularity low" title="Apple Ads popularity for ${market} is at its floor of ${APPLE_POPULARITY_FLOOR}: too few searches for Apple to rank.${measured}"><span class="estimate-label">Popularity</span><strong>Low</strong><span class="estimate-track"><i style="width:${APPLE_POPULARITY_FLOOR}%"></i></span></span>`;
+    }
+    const tier = row.popularity >= 30 ? "strong" : "mid";
+    return `<span class="estimate popularity ${tier}" title="Apple Ads search popularity for ${market}, on Apple's 5–100 scale.${measured}"><span class="estimate-label">Popularity</span><strong>${row.popularity}</strong><span class="estimate-track"><i style="width:${row.popularity}%"></i></span></span>`;
+  }
+  const reason = row.popularityStatus === "unavailable"
+    ? `Apple Ads returned no popularity for this keyword in ${market}.`
+    : "Connect Apple Ads in Paid search to show Apple's popularity.";
+  return estimateCell(row.volumeEstimate, "volume", row.estimateSampleSize, reason);
+}
+
+function estimateCell(value, kind, sampleSize, prefix = "") {
+  const shortLabel = kind === "difficulty" ? "Difficulty" : "Est. volume";
+  const lead = prefix ? `${prefix} ` : "";
+  if (value == null) return `<span class="estimate unknown" title="${escapeAttr(`${lead}Run a new check to calculate this estimate.`)}"><span class="estimate-label">${shortLabel}</span><strong>—</strong></span>`;
   const tier = kind === "difficulty"
     ? value >= 67 ? "hard" : value >= 34 ? "mid" : "strong"
     : value >= 35 ? "strong" : value >= 15 ? "mid" : "low";
   const titleLabel = kind === "difficulty"
     ? "Estimated competition; higher means harder to enter the top 10."
-    : "Estimated audience from matching-app ratings; not Apple search volume.";
+    : "Local estimate of audience from matching-app ratings; not Apple search volume.";
   const sample = sampleSize ? ` Based on ${sampleSize} rated app result${sampleSize === 1 ? "" : "s"}.` : "";
-  return `<span class="estimate ${tier}" title="${titleLabel}${sample}"><span class="estimate-label">${shortLabel}</span><strong>${value}</strong><span class="estimate-track"><i style="width:${value}%"></i></span></span>`;
+  const estimated = kind === "difficulty" ? "" : " estimated";
+  return `<span class="estimate ${tier}${estimated}" title="${escapeAttr(`${lead}${titleLabel}${sample}`)}"><span class="estimate-label">${shortLabel}</span><strong>${estimated ? `<span class="estimate-mark" aria-label="about">~</span>` : ""}${value}</strong><span class="estimate-track"><i style="width:${value}%"></i></span></span>`;
 }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
 function escapeAttr(value) { return escapeHtml(value); }

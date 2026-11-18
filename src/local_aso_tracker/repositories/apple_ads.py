@@ -26,6 +26,7 @@ from local_aso_tracker.models import (
     Storefront,
 )
 from local_aso_tracker.repositories.data import latest_pairs, list_targets, normalize_keyword
+from local_aso_tracker.repositories.keyword_popularity import popularity_lookup
 
 
 def upsert_account(session: Session, record: AppleAdsAccountRecord) -> AppleAdsAccount:
@@ -498,16 +499,31 @@ def apple_ads_payload(
             )
         )
     )
+    measured = popularity_lookup(
+        session, ((item.normalized_text, country.upper()) for item in suggestions)
+    )
+
+    def _suggestion_popularity(item: AppleAdsSuggestion) -> int | None:
+        row = measured.get((item.normalized_text, country.upper()))
+        return row.popularity if row is not None else item.popularity
+
     suggestion_payload = [
         {
             "text": item.text,
-            "popularity": item.popularity,
+            "popularity": _suggestion_popularity(item),
             "inAppleAds": item.normalized_text in tracked_terms,
             "inAsoTracker": item.normalized_text in track_by_keyword,
             "fetchedAt": _iso(item.fetched_at),
         }
         for item in suggestions
     ]
+    suggestion_payload.sort(
+        key=lambda row: (
+            row["popularity"] is None,
+            -int(row["popularity"] or 0),
+            str(row["text"]).casefold(),
+        )
+    )
     payload["campaigns"] = sorted(
         campaign_payload.values(),
         key=lambda item: (str(item["status"]) != "ENABLED", str(item["name"]).casefold()),

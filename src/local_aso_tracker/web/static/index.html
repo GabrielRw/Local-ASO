@@ -12,8 +12,8 @@
     <aside class="sidebar" id="sidebar">
       <div class="brand"><span class="brand-mark"><i></i><i></i><i></i></span><span>Local ASO</span></div>
       <nav class="toolkit" aria-label="Growth toolkit">
-        <button class="nav-item active" data-tab-target="rankings"><span class="nav-icon">↗</span>Rank tracking</button>
-        <button class="nav-item" id="nicheNavButton"><span class="nav-icon niche-icon">⌕</span>Niche research</button>
+        <button type="button" class="nav-item active" data-tab-target="rankings" aria-current="page"><span class="nav-icon">↗</span>Rank tracking</button>
+        <button type="button" class="nav-item" id="nicheNavButton"><span class="nav-icon niche-icon">⌕</span>Niche research</button>
       </nav>
       <div class="apps-heading">
         <div><h2>My apps</h2></div>
@@ -37,10 +37,11 @@
 
         <div class="tabs-bar">
           <div class="tabs" role="tablist" aria-label="App insights">
-            <button class="tab active" role="tab" data-tab="rankings">Keywords</button>
-            <button class="tab" role="tab" data-tab="health">Listing health</button>
-            <button class="tab" role="tab" data-tab="paid">Paid search</button>
-            <button class="tab" role="tab" data-tab="compare">Competitors</button>
+            <button type="button" class="tab active" role="tab" id="tab-rankings" data-tab="rankings" aria-controls="rankingsPanel" aria-selected="true" tabindex="0">Keywords</button>
+            <button type="button" class="tab" role="tab" id="tab-audit" data-tab="audit" aria-controls="auditPanel" aria-selected="false" tabindex="-1">Audit</button>
+            <button type="button" class="tab" role="tab" id="tab-health" data-tab="health" aria-controls="healthPanel" aria-selected="false" tabindex="-1">Listing health</button>
+            <button type="button" class="tab" role="tab" id="tab-paid" data-tab="paid" aria-controls="paidSearchPanel" aria-selected="false" tabindex="-1">Paid search</button>
+            <button type="button" class="tab" role="tab" id="tab-compare" data-tab="compare" aria-controls="comparePanel" aria-selected="false" tabindex="-1">Competitors</button>
           </div>
           <div class="toolbar-actions">
             <label class="select-wrap"><span>Storefront</span><select id="countrySelect" aria-label="Storefront"></select></label>
@@ -50,7 +51,7 @@
           </div>
         </div>
 
-        <section class="tab-panel active" id="rankingsPanel" data-panel="rankings">
+        <section class="tab-panel active" id="rankingsPanel" data-panel="rankings" role="tabpanel" aria-labelledby="tab-rankings" tabindex="-1">
           <div class="metric-grid" id="metrics"></div>
           <section class="data-card card">
             <div class="data-head">
@@ -59,7 +60,7 @@
             </div>
             <div class="table-scroll">
               <table class="rank-table">
-                <thead id="rankingsHeader"><tr><th data-rank-sort-column="keyword" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="keyword">Keyword<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="country" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="country">Country<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="device" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="device">Device<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="rank" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="rank">Rank<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="volume" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="volume">Volume<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="difficulty" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="difficulty">Difficulty<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="top5" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="top5">Top 5<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="change" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="change">Change<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="signal" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="signal">Signal<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="updated" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="updated">Updated<span aria-hidden="true">↕</span></button></th><th></th></tr></thead>
+                <thead id="rankingsHeader"><tr><th data-rank-sort-column="keyword" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="keyword">Keyword<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="country" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="country">Country<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="device" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="device">Device<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="rank" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="rank">Rank<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="volume" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="volume">Popularity<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="difficulty" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="difficulty">Difficulty<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="top5" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="top5">Top 5<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="change" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="change">Change<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="signal" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="signal">Signal<span aria-hidden="true">↕</span></button></th><th data-rank-sort-column="updated" aria-sort="none"><button type="button" class="rank-sort-button" data-rank-sort="updated">Updated<span aria-hidden="true">↕</span></button></th><th></th></tr></thead>
                 <tbody id="rankingsBody"></tbody>
               </table>
             </div>
@@ -86,8 +87,17 @@
           </section>
         </section>
 
-        <section class="tab-panel" id="healthPanel" data-panel="health">
+        <section class="tab-panel" id="auditPanel" data-panel="audit" role="tabpanel" aria-labelledby="tab-audit" tabindex="-1">
+          <div id="auditContent" aria-live="polite">
+            <div class="audit-loading card"><div class="skeleton audit-loading-skeleton"></div><div class="skeleton audit-loading-skeleton short"></div></div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="healthPanel" data-panel="health" role="tabpanel" aria-labelledby="tab-health" tabindex="-1">
           <section class="card coverage-card" id="coverageCard"></section>
+          <section class="card localization-studio-card" id="localizationStudio">
+            <div class="skeleton localization-studio-skeleton"></div>
+          </section>
           <div class="health-layout">
             <section class="card health-score-card" id="healthScoreCard"></section>
             <section class="card breakdown-card"><div class="data-head"><div><p class="section-kicker">Saved strategy audit</p><h2>Score breakdown</h2></div></div><div id="healthBreakdown"></div></section>
@@ -99,7 +109,7 @@
           <section class="card suggestion-card"><div class="data-head"><div><p class="section-kicker">Listing improvements</p><h2>Recommended next moves</h2></div></div><div id="healthSuggestions"></div><p class="methodology-small" id="healthMethodology"></p></section>
         </section>
 
-        <section class="tab-panel" id="comparePanel" data-panel="compare">
+        <section class="tab-panel" id="comparePanel" data-panel="compare" role="tabpanel" aria-labelledby="tab-compare" tabindex="-1">
           <section class="card competitor-matrix-card" id="competitorMatrix">
             <div class="paid-search-empty"><div class="empty-icon">⇄</div><h2>Competitor matrix</h2><p>Loading keyword rankings…</p></div>
           </section>
@@ -112,7 +122,7 @@
           </section>
         </section>
 
-        <section class="tab-panel" id="paidSearchPanel" data-panel="paid">
+        <section class="tab-panel" id="paidSearchPanel" data-panel="paid" role="tabpanel" aria-labelledby="tab-paid" tabindex="-1">
           <section class="paid-search-content" id="appleAdsContent">
             <div class="card paid-search-empty"><div class="empty-icon">◎</div><h2>Apple Ads</h2><p>Loading read-only campaign data…</p></div>
           </section>
@@ -236,6 +246,15 @@
       <div class="metric-history-summary"><strong id="metricHistoryLatest">—</strong><span id="metricHistoryCaption">keywords</span><small id="metricHistoryPeriod"></small></div>
       <div id="metricHistoryChart" class="chart-wrap"></div>
       <p class="chart-methodology" id="metricHistoryMethodology"></p>
+    </div>
+  </dialog>
+
+  <dialog class="modal confirm-modal" id="localizationPushModal" aria-labelledby="localizationPushTitle" aria-describedby="localizationPushDescription">
+    <div class="confirm-content">
+      <div class="empty-icon">↗</div>
+      <h2 id="localizationPushTitle">Push this localization?</h2>
+      <p id="localizationPushDescription">The approved fields will be written to App Store Connect. Existing metadata may remain subject to App Review.</p>
+      <div class="modal-actions"><button type="button" data-close-modal class="button button-ghost">Cancel</button><button type="button" class="button button-primary" id="confirmLocalizationPush">Push to Apple</button></div>
     </div>
   </dialog>
 

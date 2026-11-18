@@ -18,6 +18,9 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert 'id="deviceChecks"' in html
     assert 'id="localizeKeywordsButton"' in html
     assert 'id="localizationPreview"' in html
+    assert 'id="localizationStudio"' in html
+    assert 'id="localizationPushModal"' in html
+    assert 'id="confirmLocalizationPush"' in html
     assert 'id="appTooltip"' in html
     assert 'id="deleteAppModal"' in html
     assert 'id="confirmDeleteApp"' in html
@@ -29,6 +32,9 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert 'id="metricHistoryModal"' in html
     assert 'id="metricHistoryChart"' in html
     assert 'id="coverageCard"' in html
+    assert 'data-tab="audit"' in html
+    assert 'id="auditPanel"' in html
+    assert 'id="auditContent"' in html
     assert "window.confirm" not in script
     assert "targetsReactivated" in script
     assert "screenshotStatus" in script
@@ -43,6 +49,9 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert "sortRankingRows" in script
     assert 'id="rankingsHeader"' in html
     assert 'data-rank-sort="volume"' in html
+    assert 'data-rank-sort="volume">Popularity' in html
+    assert "popularityCell" in script
+    assert "popularityStatus" in script
     assert ".rank-sort-button" in styles
     assert "showTopAppTooltip" in script
     assert "app-delete-button" in script
@@ -127,6 +136,43 @@ def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
     assert "dialog.modal" in styles
     assert "modal-surface-in" in styles
     assert "custom-select-native" in styles
+    assert "loadAudit" in script
+    assert "startAudit" in script
+    assert "renderAuditRun" in script
+    assert "renderAuditKeywords" in script
+    assert "renderAuditFindingTerm" in script
+    assert "renderAuditDiscovery" in script
+    assert "discoverMoreAuditKeywords" in script
+    assert "All countries" not in script
+    assert "audit-score-gauge" in styles
+    assert ".audit-keyword-list" in styles
+    assert ".audit-finding-metrics" in styles
+    assert ".audit-discovery-card" in styles
+    assert "Specialist local audit" in script
+    assert "discovery → language → Apple → editor" in script
+    assert "Evidence-grounded insights" in script
+    assert "Reviewing language" in script
+    assert "Editing findings" in script
+    assert ".audit-finding-title" in styles
+    assert ".audit-status-pill.localizing" in styles
+    assert ".audit-status-pill.synthesizing" in styles
+    assert "renderLocalizationStudio" in script
+    assert "generateSelectedLocalizationDrafts" in script
+    assert "confirmLocalizationPush" in script
+    assert "/api/localization-studio/generate" in script
+    assert "/api/localization-studio/update" in script
+    assert "/api/localization-studio/approve" in script
+    assert "/api/localization-studio/push" in script
+    assert "/api/app-store-connect/test" in script
+    assert "localizationConnectionReady" in script
+    assert "Private key path" in script
+    assert "Text metadata only" in script
+    assert ".localization-studio-card" in styles
+    assert ".localization-source-grid" in styles
+    assert ".localization-target" in styles
+    assert ".localization-draft-card" in styles
+    assert ".localization-fields" in styles
+    assert ".localization-connect" in styles
     assert ".competitor-remove,\n.sidebar-foot .setup-link {\n  border: 0;" in styles
     assert ">Growth toolkit<" not in html
     assert 'id="appCount"' not in html

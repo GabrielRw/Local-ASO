@@ -389,7 +389,12 @@ def test_dashboard_payload_has_no_retired_metrics(dashboard: DashboardService) -
     assert "appleAds" not in payload
     assert "listingAudit" not in payload
     for ranking in payload["rankings"]:  # type: ignore[union-attr]
-        assert not any(key.startswith("popularity") for key in ranking)
+        # The retired report-based 1-5 popularity must not return; only the exact-match
+        # Apple Ads suggestion popularity (5-100) is exposed, and it is empty until measured.
+        popularity_keys = {key for key in ranking if key.startswith("popularity")}
+        assert popularity_keys == {"popularity", "popularityStatus", "popularityFetchedAt"}
+        assert ranking["popularity"] is None
+        assert ranking["popularityStatus"] is None
 
 
 def test_retired_feature_endpoints_return_not_found(dashboard: DashboardService) -> None:

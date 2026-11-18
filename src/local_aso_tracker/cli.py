@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from local_aso_tracker.apple.ads import AppleAdsError
 from local_aso_tracker.config import (
     database_path,
     load_settings,
@@ -47,6 +48,7 @@ from local_aso_tracker.services.analytics import (
     opportunity_group,
 )
 from local_aso_tracker.services.checks import run_checks
+from local_aso_tracker.services.keyword_popularity import refresh_keyword_popularity
 from local_aso_tracker.utils.logging import configure_logging
 
 app = typer.Typer(
@@ -447,6 +449,29 @@ def _ranking_rows(session: Session, targets: list[TrackingTarget]) -> list[Ranki
     return [
         RankingRow(target, pair[0], pair[1]) for target in targets if (pair := pairs.get(target.id))
     ]
+
+
+@app.command("popularity")
+def popularity(
+    country: str | None = typer.Option(None, "--country", help="Limit to one storefront."),
+    force: bool = typer.Option(False, "--force", help="Ignore the 7-day refresh window."),
+) -> None:
+    """Measure Apple Ads search popularity for tracked keywords (read-only)."""
+
+    require_initialized()
+    try:
+        summary = refresh_keyword_popularity(country=country, force=force)
+    except (AppleAdsError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(
+        f"Apple Ads popularity: {summary.measured} measured, {summary.missing} without an "
+        f"Apple score, {summary.skipped} still fresh, {summary.failures} failed."
+    )
+    if summary.unsupported_markets:
+        emit(
+            "Not served by Apple Ads (skipped): " + ", ".join(summary.unsupported_markets),
+            style="yellow",
+        )
 
 
 @app.command("rankings")

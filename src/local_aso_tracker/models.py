@@ -445,6 +445,29 @@ class AppleAdsSuggestion(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class KeywordPopularity(Base):
+    """Apple Ads search popularity measured for exactly one keyword and market.
+
+    ``popularity`` is NULL when Apple returned no exact match for the keyword, so the
+    keyword is not requested again until the measurement is stale.
+    """
+
+    __tablename__ = "keyword_popularity"
+    __table_args__ = (
+        UniqueConstraint("normalized_keyword", "country_code", name="uq_keyword_popularity"),
+        CheckConstraint(
+            "popularity IS NULL OR popularity BETWEEN 0 AND 100",
+            name="ck_keyword_popularity_range",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    normalized_keyword: Mapped[str] = mapped_column(String(255), index=True)
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    popularity: Mapped[int | None] = mapped_column(Integer)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class CompetitorApp(Base):
     """A read-only app column in the keyword competitor matrix."""
 
@@ -491,3 +514,228 @@ class CompetitorRank(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
 
     competitor: Mapped[CompetitorApp] = relationship(back_populates="ranks")
+
+
+class AuditRun(Base):
+    """One app audit request and its aggregate result."""
+
+    __tablename__ = "audit_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(20))
+    country_code: Mapped[str | None] = mapped_column(String(2))
+    device: Mapped[str] = mapped_column(String(10), default="iphone")
+    provider: Mapped[str] = mapped_column(String(30))
+    status: Mapped[str] = mapped_column(String(30), default="queued", index=True)
+    score: Mapped[int | None] = mapped_column(Integer)
+    prompt_version: Mapped[str] = mapped_column(String(30), default="audit-v3-specialist-pipeline")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, index=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    app: Mapped[App] = relationship()
+    countries: Mapped[list[AuditCountryResult]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="AuditCountryResult.id"
+    )
+
+
+class AuditCountryResult(Base):
+    """The deterministic and model-assisted result for one storefront."""
+
+    __tablename__ = "audit_country_results"
+    __table_args__ = (
+        UniqueConstraint("audit_run_id", "country_code", name="uq_audit_country_result"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_run_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_runs.id", ondelete="CASCADE"), index=True
+    )
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    score: Mapped[int | None] = mapped_column(Integer)
+    ranking_score: Mapped[int | None] = mapped_column(Integer)
+    listing_score: Mapped[int | None] = mapped_column(Integer)
+    localization_score: Mapped[int | None] = mapped_column(Integer)
+    competition_score: Mapped[int | None] = mapped_column(Integer)
+    summary: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    run: Mapped[AuditRun] = relationship(back_populates="countries")
+    findings: Mapped[list[AuditFinding]] = relationship(
+        back_populates="country_result",
+        cascade="all, delete-orphan",
+        order_by="AuditFinding.position",
+    )
+    keywords: Mapped[list[AuditKeyword]] = relationship(
+        back_populates="country_result",
+        cascade="all, delete-orphan",
+        order_by="AuditKeyword.id",
+    )
+
+
+class AuditFinding(Base):
+    """A grounded, ordered audit finding for one country."""
+
+    __tablename__ = "audit_findings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_country_result_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_country_results.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    tone: Mapped[str] = mapped_column(String(20))
+    category: Mapped[str] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(255))
+    detail: Mapped[str] = mapped_column(Text)
+    terms: Mapped[str] = mapped_column(Text, default="[]")
+
+    country_result: Mapped[AuditCountryResult] = relationship(back_populates="findings")
+
+
+class AuditKeyword(Base):
+    """One recommended keyword and its public Apple evidence."""
+
+    __tablename__ = "audit_keywords"
+    __table_args__ = (
+        UniqueConstraint(
+            "audit_country_result_id", "normalized_keyword", name="uq_audit_keyword_country"
+        ),
+        CheckConstraint(
+            "volume_estimate IS NULL OR volume_estimate BETWEEN 0 AND 100",
+            name="ck_audit_keywords_volume",
+        ),
+        CheckConstraint(
+            "difficulty_estimate IS NULL OR difficulty_estimate BETWEEN 0 AND 100",
+            name="ck_audit_keywords_difficulty",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_country_result_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_country_results.id", ondelete="CASCADE"), index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(255))
+    normalized_keyword: Mapped[str] = mapped_column(String(255), index=True)
+    intent: Mapped[str] = mapped_column(String(255), default="")
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    rank: Mapped[int | None] = mapped_column(Integer)
+    found: Mapped[bool | None] = mapped_column(Boolean)
+    result_limit: Mapped[int | None] = mapped_column(Integer)
+    volume_estimate: Mapped[int | None] = mapped_column(Integer)
+    apple_popularity: Mapped[int | None] = mapped_column(Integer)
+    popularity_status: Mapped[str | None] = mapped_column(String(20))
+    # "aso" for listing phrases; "apple_ads" for competitor-brand searches to bid on.
+    channel: Mapped[str] = mapped_column(String(20), default="aso", server_default="aso")
+    brand_owner: Mapped[str | None] = mapped_column(String(255))
+    difficulty_estimate: Mapped[int | None] = mapped_column(Integer)
+    sample_size: Mapped[int | None] = mapped_column(Integer)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    country_result: Mapped[AuditCountryResult] = relationship(back_populates="keywords")
+
+
+class ListingLocalizationDraft(Base):
+    """A reviewable localized App Store metadata draft."""
+
+    __tablename__ = "listing_localization_drafts"
+    __table_args__ = (
+        UniqueConstraint("app_id", "target_locale", name="uq_listing_localization_locale"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), index=True)
+    source_country: Mapped[str] = mapped_column(String(2))
+    source_locale: Mapped[str] = mapped_column(String(20))
+    target_locale: Mapped[str] = mapped_column(String(20), index=True)
+    target_countries: Mapped[str] = mapped_column(Text, default="[]")
+    language: Mapped[str] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    iteration_count: Mapped[int] = mapped_column(Integer, default=0)
+    provider: Mapped[str | None] = mapped_column(String(30))
+    source_fields: Mapped[str] = mapped_column(Text, default="{}")
+    fields: Mapped[str] = mapped_column(Text, default="{}")
+    validation: Mapped[str] = mapped_column(Text, default="{}")
+    remote_app_info_localization_id: Mapped[str | None] = mapped_column(String(100))
+    remote_version_localization_id: Mapped[str | None] = mapped_column(String(100))
+    remote_version_id: Mapped[str | None] = mapped_column(String(100))
+    remote_version_state: Mapped[str | None] = mapped_column(String(50))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    iterations: Mapped[list[ListingLocalizationIteration]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        order_by="ListingLocalizationIteration.iteration",
+    )
+    push_events: Mapped[list[ListingPushEvent]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        order_by="ListingPushEvent.created_at",
+    )
+
+
+class ListingLocalizationSettings(Base):
+    """Selected master storefront for an app's localization workflow."""
+
+    __tablename__ = "listing_localization_settings"
+
+    app_id: Mapped[int] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"), primary_key=True)
+    main_country: Mapped[str] = mapped_column(String(2), default="us")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class ListingLocalizationIteration(Base):
+    """One model proposal and deterministic review result."""
+
+    __tablename__ = "listing_localization_iterations"
+    __table_args__ = (
+        UniqueConstraint("draft_id", "iteration", name="uq_listing_localization_iteration"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(
+        ForeignKey("listing_localization_drafts.id", ondelete="CASCADE"), index=True
+    )
+    iteration: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str | None] = mapped_column(String(30))
+    fields: Mapped[str] = mapped_column(Text, default="{}")
+    validation: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    draft: Mapped[ListingLocalizationDraft] = relationship(back_populates="iterations")
+
+
+class ListingPushEvent(Base):
+    """A local audit record for one App Store Connect push attempt."""
+
+    __tablename__ = "listing_push_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(
+        ForeignKey("listing_localization_drafts.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(30))
+    fields: Mapped[str] = mapped_column(Text, default="{}")
+    before_values: Mapped[str] = mapped_column(Text, default="{}")
+    after_values: Mapped[str] = mapped_column(Text, default="{}")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    draft: Mapped[ListingLocalizationDraft] = relationship(back_populates="push_events")

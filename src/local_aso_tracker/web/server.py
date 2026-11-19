@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import re
+import signal
 import threading
 import time
 import webbrowser
@@ -19,8 +20,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from local_aso_tracker.apple.ads import AppleAdsError
+from local_aso_tracker.apple.app_store_connect import (
+    AppStoreConnectClient,
+    AppStoreConnectError,
+    connection_status,
+)
 from local_aso_tracker.apple.client import AppleClientError
 from local_aso_tracker.apple.listing import AppleListing, lookup_listing
 from local_aso_tracker.config import (
@@ -34,8 +41,15 @@ from local_aso_tracker.models import (
     App,
     AppArtwork,
     Keyword,
+    KeywordPopularity,
     Storefront,
     TrackingTarget,
+)
+from local_aso_tracker.repositories.audits import (
+    active_audit_run,
+    audit_dashboard_payload,
+    create_audit_run,
+    get_audit_run,
 )
 from local_aso_tracker.repositories.data import (
     add_app,
@@ -50,6 +64,7 @@ from local_aso_tracker.repositories.data import (
     save_listing_metadata,
     successful_checks,
 )
+from local_aso_tracker.repositories.keyword_popularity import popularity_lookup
 from local_aso_tracker.repositories.niches import (
     add_niche_country,
     add_niche_keywords,
@@ -59,7 +74,12 @@ from local_aso_tracker.repositories.niches import (
     remove_niche_country,
 )
 from local_aso_tracker.repositories.onboarding import complete_onboarding, onboarding_completed
-from local_aso_tracker.services.agent import AgentError, generate_keywords, provider_status
+from local_aso_tracker.services.agent import (
+    AgentError,
+    generate_keywords,
+    provider_status,
+    test_provider,
+)
 from local_aso_tracker.services.analytics import (
     RankingRow,
     calculate_metric_trends,
@@ -73,6 +93,7 @@ from local_aso_tracker.services.apple_ads import (
     select_account,
     sync_apple_ads,
 )
+from local_aso_tracker.services.audits import AuditWorker
 from local_aso_tracker.services.automatic_sync import AutomaticSyncWorker
 from local_aso_tracker.services.checks import run_checks
 from local_aso_tracker.services.competitors import (
@@ -88,7 +109,16 @@ from local_aso_tracker.services.coverage import (
 )
 from local_aso_tracker.services.estimates import ESTIMATE_VERSION
 from local_aso_tracker.services.health import assess_listing
+from local_aso_tracker.services.listing_localization import (
+    approve_localization,
+    generate_localization_drafts,
+    listing_localization_studio,
+    push_localization,
+    save_main_storefront,
+    update_localization_fields,
+)
 from local_aso_tracker.services.localization import localization_payload
+from local_aso_tracker.services.localization_targets import COUNTRY_PRIMARY_LANGUAGE
 from local_aso_tracker.services.niche_research import refresh_niche_metrics
 
 logger = logging.getLogger(__name__)
@@ -103,12 +133,17 @@ def _iso_utc(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat()
 
 
+def _popularity_key(row: RankingRow) -> tuple[str, str]:
+    return (row.target.keyword.normalized_keyword, row.target.storefront.country_code.upper())
+
+
 class DashboardService:
     """Compose dashboard data and execute explicit local mutations."""
 
     def __init__(self) -> None:
         self._listing_cache: dict[tuple[int, str], tuple[float, AppleListing]] = {}
         self._cache_lock = threading.Lock()
+        self.audit_worker = AuditWorker()
 
     def listing(self, apple_app_id: int, country: str) -> AppleListing:
         key = (apple_app_id, validate_country_code(country))
@@ -218,7 +253,13 @@ class DashboardService:
                     {"code": "iphone", "name": "iPhone"},
                     {"code": "ipad", "name": "iPad"},
                 ],
-                "agentProviders": [asdict(item) for item in provider_status()],
+                "agentProviders": [
+                    asdict(item)
+                    for item in provider_status(
+                        codex_path=settings.agent_codex_path,
+                        claude_path=settings.agent_claude_path,
+                    )
+                ],
                 "defaultAgentProvider": settings.agent_provider,
                 "selectedAppId": selected_id,
                 "selectedCountry": storefront,
@@ -234,7 +275,7 @@ class DashboardService:
                     if metadata
                     else None
                 ),
-                "rankings": [self._ranking(row) for row in rows],
+                "rankings": self._rankings(session, rows),
                 "targetCounts": {
                     f"{item.country_code}:{device}": sum(
                         target.storefront.country_code == item.country_code
@@ -341,12 +382,280 @@ class DashboardService:
         provider = str(body.get("provider", "auto")).strip().lower()
         if provider not in {"auto", "codex", "claude"}:
             raise ValueError("agent provider must be auto, codex, or claude")
+        current = load_settings()
+        paths: dict[str, str] = {}
+        for key, setting in (
+            ("codexPath", "agent_codex_path"),
+            ("claudePath", "agent_claude_path"),
+        ):
+            if key in body:
+                value = " ".join(str(body[key]).split())
+                if len(value) > 500:
+                    raise ValueError(f"{key} must be 500 characters or fewer")
+                paths[setting] = value
         if provider != "auto":
-            available = {item.id: item.available for item in provider_status()}
+            provider_kwargs = {}
+            if current.agent_codex_path or "agent_codex_path" in paths:
+                provider_kwargs["codex_path"] = paths.get(
+                    "agent_codex_path", current.agent_codex_path
+                )
+            if current.agent_claude_path or "agent_claude_path" in paths:
+                provider_kwargs["claude_path"] = paths.get(
+                    "agent_claude_path", current.agent_claude_path
+                )
+            available = {
+                item.id: item.available
+                for item in (
+                    provider_status(**provider_kwargs) if provider_kwargs else provider_status()
+                )
+            }
             if not available.get(provider, False):
                 raise ValueError(f"{provider} CLI is not installed or not available on PATH")
-        settings = update_settings(agent_provider=provider)
-        return {"provider": settings.agent_provider}
+        settings = update_settings(agent_provider=provider, **paths)
+        result: dict[str, object] = {"provider": settings.agent_provider}
+        if "agent_codex_path" in paths:
+            result["codexPath"] = settings.agent_codex_path
+        if "agent_claude_path" in paths:
+            result["claudePath"] = settings.agent_claude_path
+        return result
+
+    def audit(
+        self,
+        app_id: int,
+        run_id: int | None = None,
+        country: str | None = None,
+        device: str | None = None,
+    ) -> dict[str, object]:
+        settings = load_settings()
+        with session_scope() as session:
+            app = session.scalar(select(App).where(App.apple_app_id == app_id))
+            if app is None:
+                raise ValueError(f"unknown app ID: {app_id}")
+            payload = audit_dashboard_payload(
+                session,
+                app_id=app.id,
+                run_id=run_id,
+                country_code=validate_country_code(country) if country else None,
+                device=validate_device(device) if device else None,
+            )
+        payload["appId"] = app_id
+        payload["providers"] = [
+            asdict(item)
+            for item in provider_status(
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+            )
+        ]
+        payload["defaultProvider"] = settings.agent_provider
+        selected_run = payload.get("run")
+        selected_country = (
+            str(selected_run.get("country"))
+            if isinstance(selected_run, dict) and selected_run.get("country")
+            else country or "us"
+        )
+        payload["auditLanguage"] = COUNTRY_PRIMARY_LANGUAGE.get(
+            selected_country,
+            "English",
+        )
+        payload["agentPaths"] = {
+            "codex": settings.agent_codex_path,
+            "claude": settings.agent_claude_path,
+        }
+        return payload
+
+    def start_audit(self, body: dict[str, Any]) -> dict[str, object]:
+        app_id = int(body["appId"])
+        scope = str(body.get("scope", "country")).strip().lower()
+        if scope != "country":
+            raise ValueError("audits are available per country only")
+        device = validate_device(str(body.get("device", "iphone")))
+        country = validate_country_code(str(body.get("country", "us")))
+        settings = load_settings()
+        requested_provider = str(body.get("provider") or settings.agent_provider).strip().lower()
+        if requested_provider not in {"auto", "codex", "claude"}:
+            raise ValueError("agent provider must be auto, codex, or claude")
+        providers = {
+            item.id: item.available
+            for item in provider_status(
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+            )
+        }
+        if requested_provider != "auto" and not providers.get(requested_provider, False):
+            raise ValueError(f"{requested_provider} CLI is not installed or not available on PATH")
+        if requested_provider == "auto" and not any(providers.values()):
+            raise ValueError("Install or configure Codex or Claude before running an audit")
+        with session_scope() as session:
+            app = session.scalar(select(App).where(App.apple_app_id == app_id))
+            if app is None:
+                raise ValueError(f"unknown app ID: {app_id}")
+            if not app.active:
+                raise ValueError("choose an active app before running an audit")
+            active_countries = list(
+                session.scalars(
+                    select(Storefront.country_code)
+                    .where(Storefront.active.is_(True))
+                    .order_by(Storefront.country_code)
+                )
+            )
+            if country not in active_countries:
+                raise ValueError(f"unknown active country: {country}")
+            existing = active_audit_run(
+                session,
+                app_id=app.id,
+                device=device,
+                country_code=country,
+            )
+            if existing is not None:
+                return self.audit(app_id, existing.id, country, device)
+            countries = [country]
+            run = create_audit_run(
+                session,
+                app_id=app.id,
+                scope=scope,
+                country_code=country,
+                device=device,
+                provider=requested_provider,
+                country_codes=countries,
+            )
+            run_id = run.id
+        self.audit_worker.start(run_id)
+        return self.audit(app_id, run_id, country, device)
+
+    def cancel_audit(self, body: dict[str, Any]) -> dict[str, object]:
+        run_id = int(body["runId"])
+        app_id = int(body["appId"])
+        self.audit_worker.cancel(run_id)
+        return self.audit(app_id, run_id)
+
+    def expand_audit(self, body: dict[str, Any]) -> dict[str, object]:
+        app_id = int(body["appId"])
+        run_id = int(body["runId"])
+        country = validate_country_code(str(body["country"]))
+        instruction = " ".join(str(body.get("instruction", "")).split())
+        if not instruction:
+            raise ValueError("describe what kind of keywords to discover")
+        if len(instruction) > 1_000:
+            raise ValueError("discovery instruction must be 1000 characters or fewer")
+        with session_scope() as session:
+            run = get_audit_run(session, run_id)
+            if run is None or run.app is None or run.app.apple_app_id != app_id:
+                raise ValueError("audit does not belong to the selected app")
+        added = self.audit_worker.runner.expand_country(run_id, country, instruction)
+        payload = self.audit(app_id, run_id)
+        payload["iteration"] = {
+            "country": country,
+            "added": added,
+            "instruction": instruction,
+        }
+        return payload
+
+    def test_agent_provider(self, body: dict[str, Any]) -> dict[str, object]:
+        settings = load_settings()
+        return test_provider(
+            str(body.get("provider") or settings.agent_provider),
+            codex_path=str(body.get("codexPath", settings.agent_codex_path)),
+            claude_path=str(body.get("claudePath", settings.agent_claude_path)),
+            timeout=15.0,
+        )
+
+    def localization_studio(self, app_id: int, country: str) -> dict[str, object]:
+        settings = load_settings()
+        with session_scope() as session:
+            payload = listing_localization_studio(
+                session,
+                app_id=app_id,
+                current_country=validate_country_code(country),
+                settings=settings,
+            )
+        payload["providers"] = [
+            asdict(item)
+            for item in provider_status(
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+            )
+        ]
+        payload["defaultProvider"] = settings.agent_provider
+        return payload
+
+    def save_app_store_connect_settings(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, object]:
+        issuer_id = " ".join(str(body.get("issuerId", "")).split())
+        key_id = " ".join(str(body.get("keyId", "")).split())
+        key_path = str(body.get("keyPath", "")).strip()
+        if len(issuer_id) > 200 or len(key_id) > 100 or len(key_path) > 1_000:
+            raise ValueError("App Store Connect credentials are too long")
+        settings = update_settings(
+            app_store_connect_issuer_id=issuer_id,
+            app_store_connect_key_id=key_id,
+            app_store_connect_key_path=key_path,
+        )
+        return connection_status(settings)
+
+    def test_app_store_connect(self, _body: dict[str, Any]) -> dict[str, object]:
+        settings = load_settings()
+        with AppStoreConnectClient(settings) as client:
+            result = client.test()
+        result["status"] = connection_status(settings)
+        return result
+
+    def set_localization_main_storefront(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, object]:
+        app_id = int(body["appId"])
+        country = validate_country_code(str(body["country"]))
+        save_main_storefront(app_id=app_id, country=country)
+        return self.localization_studio(app_id, country)
+
+    def generate_localization(self, body: dict[str, Any]) -> dict[str, object]:
+        app_id = int(body["appId"])
+        main_country = validate_country_code(str(body["mainCountry"]))
+        target_countries = body.get("targetCountries")
+        if not isinstance(target_countries, list) or not target_countries:
+            raise ValueError("select at least one target country")
+        targets = [validate_country_code(str(country)) for country in target_countries]
+        settings = load_settings()
+        result = generate_localization_drafts(
+            app_id=app_id,
+            main_country=main_country,
+            target_countries=targets,
+            provider=str(body.get("provider") or settings.agent_provider),
+            settings=settings,
+        )
+        return {
+            "drafts": result.drafts,
+            "iterations": result.iterations,
+        }
+
+    def approve_listing_localization(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, object]:
+        return approve_localization(draft_id=int(body["draftId"]))
+
+    def update_listing_localization(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, object]:
+        fields = body.get("fields")
+        if not isinstance(fields, dict):
+            raise ValueError("localization fields must be an object")
+        return update_localization_fields(
+            draft_id=int(body["draftId"]),
+            fields={str(key): str(value) for key, value in fields.items()},
+        )
+
+    def push_listing_localization(
+        self,
+        body: dict[str, Any],
+    ) -> dict[str, object]:
+        return push_localization(
+            draft_id=int(body["draftId"]),
+            settings=load_settings(),
+        )
 
     def apple_ads(self, app_id: int | None, country: str, device: str) -> dict[str, object]:
         return apple_ads_status(app_id, country, device)
@@ -543,7 +852,13 @@ class DashboardService:
         settings = load_settings()
         with session_scope() as session:
             payload = niche_board_payload(session, board_id)
-        payload["providers"] = [asdict(provider) for provider in provider_status()]
+        payload["providers"] = [
+            asdict(provider)
+            for provider in provider_status(
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+            )
+        ]
         payload["defaultProvider"] = settings.agent_provider
         return payload
 
@@ -819,11 +1134,14 @@ class DashboardService:
             )
             result = run_checks(session, due_targets, settings)
             pairs = latest_pairs(session, due_targets)
-            rankings = [
-                self._ranking(RankingRow(target, pairs[target.id][0], pairs[target.id][1]))
-                for target in due_targets
-                if target.id in pairs
-            ]
+            rankings = self._rankings(
+                session,
+                [
+                    RankingRow(target, pairs[target.id][0], pairs[target.id][1])
+                    for target in due_targets
+                    if target.id in pairs
+                ],
+            )
             return {
                 "checks": len(result.checks),
                 "searches": result.searches,
@@ -832,8 +1150,13 @@ class DashboardService:
                 "skipped": skipped,
             }
 
+    @classmethod
+    def _rankings(cls, session: Session, rows: list[RankingRow]) -> list[dict[str, object]]:
+        measurements = popularity_lookup(session, (_popularity_key(row) for row in rows))
+        return [cls._ranking(row, measurements.get(_popularity_key(row))) for row in rows]
+
     @staticmethod
-    def _ranking(row: RankingRow) -> dict[str, object]:
+    def _ranking(row: RankingRow, popularity: KeywordPopularity | None = None) -> dict[str, object]:
         return {
             "targetId": row.target.id,
             "keyword": row.target.keyword.keyword,
@@ -843,6 +1166,15 @@ class DashboardService:
             "found": row.latest.found,
             "resultLimit": row.latest.result_limit,
             "volumeEstimate": row.latest.estimate.volume if row.latest.estimate else None,
+            "popularity": popularity.popularity if popularity else None,
+            "popularityStatus": (
+                None
+                if popularity is None
+                else "measured"
+                if popularity.popularity is not None
+                else "unavailable"
+            ),
+            "popularityFetchedAt": _iso_utc(popularity.fetched_at) if popularity else None,
             "difficultyEstimate": (row.latest.estimate.difficulty if row.latest.estimate else None),
             "estimateSampleSize": (
                 row.latest.estimate.sample_size if row.latest.estimate else None
@@ -983,6 +1315,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 board_id = int(query["boardId"][0]) if query.get("boardId") else None
                 self._json(self.service.niche(board_id))
                 return
+            if parsed.path == "/api/localization-studio":
+                query = parse_qs(parsed.query)
+                self._json(
+                    self.service.localization_studio(
+                        int(query["appId"][0]),
+                        query.get("country", ["us"])[0],
+                    )
+                )
+                return
+            if parsed.path.startswith("/api/audits"):
+                query = parse_qs(parsed.query)
+                segments = [item for item in parsed.path.split("/") if item]
+                run_id = int(segments[2]) if len(segments) > 2 and segments[2].isdigit() else None
+                if run_id is None and query.get("runId"):
+                    run_id = int(query["runId"][0])
+                app_id = int(query["appId"][0])
+                self._json(
+                    self.service.audit(
+                        app_id,
+                        run_id,
+                        query.get("country", [None])[0],
+                        query.get("device", [None])[0],
+                    )
+                )
+                return
             if parsed.path == "/api/sync-status":
                 worker = self.sync_worker
                 self._json(
@@ -1005,7 +1362,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._static(parsed.path)
-        except (ValueError, KeyError, AppleClientError, AppleAdsError, AgentError) as exc:
+        except (
+            ValueError,
+            KeyError,
+            AppleClientError,
+            AppleAdsError,
+            AppStoreConnectError,
+            AgentError,
+        ) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
             logger.debug("Dashboard GET failed", exc_info=True)
@@ -1037,13 +1401,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/niche/agent-keywords": self.service.add_niche_agent_keywords,
                 "/api/niche/countries/add": self.service.add_niche_market,
                 "/api/niche/countries/remove": self.service.remove_niche_market,
+                "/api/audits": self.service.start_audit,
+                "/api/audits/cancel": self.service.cancel_audit,
+                "/api/audits/expand": self.service.expand_audit,
+                "/api/agent/test": self.service.test_agent_provider,
+                "/api/app-store-connect/settings": self.service.save_app_store_connect_settings,
+                "/api/app-store-connect/test": self.service.test_app_store_connect,
+                "/api/localization-studio/main": self.service.set_localization_main_storefront,
+                "/api/localization-studio/generate": self.service.generate_localization,
+                "/api/localization-studio/approve": self.service.approve_listing_localization,
+                "/api/localization-studio/update": self.service.update_listing_localization,
+                "/api/localization-studio/push": self.service.push_listing_localization,
             }
             action = actions.get(parsed.path)
             if action is None:
                 self._error(HTTPStatus.NOT_FOUND, "unknown local action")
                 return
             self._json(action(body))
-        except (ValueError, KeyError, AppleClientError, AppleAdsError, AgentError) as exc:
+        except (
+            ValueError,
+            KeyError,
+            AppleClientError,
+            AppleAdsError,
+            AppStoreConnectError,
+            AgentError,
+        ) as exc:
             self._error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
             logger.debug("Dashboard POST failed", exc_info=True)
@@ -1106,6 +1488,13 @@ class LocalDashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
+READY_PREFIX = "LOCAL_ASO_READY"
+
+
+class _ShutdownRequested(Exception):
+    """Raised from the SIGTERM handler to leave ``serve_forever`` cleanly."""
+
+
 def serve_dashboard(
     *,
     host: str = "127.0.0.1",
@@ -1114,11 +1503,17 @@ def serve_dashboard(
     mcp_port: int = 8766,
     open_browser: bool = True,
 ) -> None:
-    """Serve the dashboard until interrupted; bind to loopback by default."""
+    """Serve the dashboard until interrupted; bind to loopback by default.
+
+    ``port=0`` binds a free port. Once the socket is listening, one machine-readable
+    line ``LOCAL_ASO_READY http://host:port/`` is printed; the desktop app waits for it.
+    SIGTERM (sent by the desktop app on quit) stops the server like Ctrl+C.
+    """
 
     from local_aso_tracker.mcp_server import MCPRuntime
 
     server = LocalDashboardServer((host, port), DashboardHandler)
+    bound_port = int(server.server_address[1])
     sync_worker = AutomaticSyncWorker()
     DashboardHandler.sync_worker = sync_worker
     sync_worker.start()
@@ -1129,16 +1524,29 @@ def serve_dashboard(
         else:
             print(f"Warning: MCP endpoint unavailable on port {mcp_port}.", flush=True)
             mcp_runtime = None
-    url = f"http://{host}:{port}"
+    url = f"http://{host}:{bound_port}"
     print(f"Local ASO dashboard: {url}", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
+    print(f"{READY_PREFIX} {url}/", flush=True)
     if open_browser:
         webbrowser.open(url)
+
+    previous_handler: Any = None
+    in_main_thread = threading.current_thread() is threading.main_thread()
+    if in_main_thread:
+
+        def _on_sigterm(_signum: int, _frame: object) -> None:
+            raise _ShutdownRequested
+
+        previous_handler = signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, _ShutdownRequested):
         print("\nDashboard stopped.", flush=True)
     finally:
+        if in_main_thread:
+            signal.signal(signal.SIGTERM, previous_handler or signal.SIG_DFL)
+        DashboardHandler.service.audit_worker.stop()
         sync_worker.stop()
         DashboardHandler.sync_worker = None
         server.server_close()

@@ -21,3 +21,11 @@ apple-ads.toml
 *.db
 *.sqlite*
 .DS_Store
+
+# Frontend and desktop app builds
+node_modules/
+frontend/.vite/
+desktop/build/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+.claude/

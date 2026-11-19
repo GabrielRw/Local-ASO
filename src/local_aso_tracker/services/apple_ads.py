@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 
-from local_aso_tracker.apple.ads import AppleAdsClient, AppleAdsSuggestionRecord
+from local_aso_tracker.apple.ads import AppleAdsClient, AppleAdsError, AppleAdsSuggestionRecord
 from local_aso_tracker.config import (
     load_settings,
     update_settings,
@@ -25,6 +25,12 @@ from local_aso_tracker.repositories.apple_ads import (
     touch_account,
     tracked_suggestion_terms,
     upsert_account,
+)
+from local_aso_tracker.repositories.data import normalize_keyword
+from local_aso_tracker.repositories.keyword_popularity import store_popularity
+from local_aso_tracker.services.keyword_popularity import (
+    exact_popularity,
+    refresh_keyword_popularity,
 )
 
 _SYNC_LOCK = threading.Lock()
@@ -169,17 +175,27 @@ def _sync_apple_ads(
             device=normalized_device,
             limit=20,
         )
+    # Apple scores each suggestion relative to the seed it was requested with, so only a
+    # suggestion that is the seed itself carries that term's own popularity. Related
+    # suggestions are kept for discovery without a score; the dashboard fills in any
+    # exact measurement stored in keyword_popularity.
     suggestions_by_text: dict[str, AppleAdsSuggestionRecord] = {}
+    seed_popularity: dict[str, int | None] = {}
     for seed in terms:
-        for suggestion in ads_client.keyword_suggestions(
+        seed_suggestions = ads_client.keyword_suggestions(
             account_id,
             apple_app_id=apple_app_id,
             country=storefront,
             terms=[seed],
-        ):
-            current = suggestions_by_text.get(suggestion.text.casefold())
-            if current is None or (suggestion.popularity or 0) > (current.popularity or 0):
-                suggestions_by_text[suggestion.text.casefold()] = suggestion
+        )
+        found, popularity = exact_popularity(seed_suggestions, seed)
+        seed_popularity[normalize_keyword(seed)] = popularity if found else None
+        for suggestion in seed_suggestions:
+            key = suggestion.text.casefold()
+            exact = seed_popularity.get(normalize_keyword(suggestion.text))
+            current = suggestions_by_text.get(key)
+            if current is None or (exact is not None and current.popularity is None):
+                suggestions_by_text[key] = AppleAdsSuggestionRecord(suggestion.text, exact)
     suggestions = sorted(
         suggestions_by_text.values(),
         key=lambda item: (-(item.popularity or 0), item.text.casefold()),
@@ -202,7 +218,26 @@ def _sync_apple_ads(
         app = session.scalar(select(App).where(App.apple_app_id == apple_app_id))
         if app is not None:
             replace_suggestions(session, app, storefront, suggestions)
+        for normalized, popularity in seed_popularity.items():
+            store_popularity(
+                session,
+                normalized_keyword=normalized,
+                country=storefront,
+                popularity=popularity,
+            )
         touch_account(session, account)
+
+    popularity_summary: dict[str, object]
+    try:
+        refreshed = refresh_keyword_popularity(country=storefront, client=ads_client)
+        popularity_summary = {
+            "measured": refreshed.measured,
+            "missing": refreshed.missing,
+            "skipped": refreshed.skipped,
+            "failures": refreshed.failures,
+        }
+    except (AppleAdsError, ValueError) as exc:
+        popularity_summary = {"error": str(exc)}
 
     payload = apple_ads_status(
         apple_app_id,
@@ -217,6 +252,7 @@ def _sync_apple_ads(
         "keywords": len(keywords),
         "metricRows": metric_count,
         "suggestions": len(suggestions),
+        "popularity": popularity_summary,
         "start": start.isoformat(),
         "end": end.isoformat(),
     }

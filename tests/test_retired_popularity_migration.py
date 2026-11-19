@@ -3,10 +3,14 @@
 from pathlib import Path
 
 from alembic import command
-from alembic.config import Config
 from sqlalchemy import inspect, select, text
 
-from local_aso_tracker.database import create_db_engine, run_migrations, session_scope
+from local_aso_tracker.database import (
+    alembic_config,
+    create_db_engine,
+    run_migrations,
+    session_scope,
+)
 from local_aso_tracker.models import (
     App,
     Base,
@@ -22,10 +26,7 @@ from local_aso_tracker.repositories.onboarding import complete_onboarding
 
 def test_upgrade_removes_only_retired_tables_and_preserves_tracking(tmp_path: Path) -> None:
     path = tmp_path / "aso.db"
-    root = Path(__file__).resolve().parents[1]
-    config = Config(root / "alembic.ini")
-    config.set_main_option("script_location", str(root / "migrations"))
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    config = alembic_config(path)
     command.upgrade(config, "0006")
     engine = create_db_engine(path)
     with session_scope(engine) as session:

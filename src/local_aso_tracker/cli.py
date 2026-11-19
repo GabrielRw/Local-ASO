@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from local_aso_tracker.apple.ads import AppleAdsError
 from local_aso_tracker.config import (
     database_path,
     load_settings,
@@ -26,6 +27,7 @@ from local_aso_tracker.database import run_migrations, session_scope
 from local_aso_tracker.models import App, Keyword, RankCheck, Storefront, TrackingTarget
 from local_aso_tracker.reports.exports import export_history_csv, export_json, export_latest_csv
 from local_aso_tracker.reports.html import generate_html_report
+from local_aso_tracker.repositories.audits import mark_interrupted_runs
 from local_aso_tracker.repositories.data import (
     INITIAL_COUNTRIES,
     add_app,
@@ -47,6 +49,7 @@ from local_aso_tracker.services.analytics import (
     opportunity_group,
 )
 from local_aso_tracker.services.checks import run_checks
+from local_aso_tracker.services.keyword_popularity import refresh_keyword_popularity
 from local_aso_tracker.utils.logging import configure_logging
 
 app = typer.Typer(
@@ -449,6 +452,29 @@ def _ranking_rows(session: Session, targets: list[TrackingTarget]) -> list[Ranki
     ]
 
 
+@app.command("popularity")
+def popularity(
+    country: str | None = typer.Option(None, "--country", help="Limit to one storefront."),
+    force: bool = typer.Option(False, "--force", help="Ignore the 7-day refresh window."),
+) -> None:
+    """Measure Apple Ads search popularity for tracked keywords (read-only)."""
+
+    require_initialized()
+    try:
+        summary = refresh_keyword_popularity(country=country, force=force)
+    except (AppleAdsError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(
+        f"Apple Ads popularity: {summary.measured} measured, {summary.missing} without an "
+        f"Apple score, {summary.skipped} still fresh, {summary.failures} failed."
+    )
+    if summary.unsupported_markets:
+        emit(
+            "Not served by Apple Ads (skipped): " + ", ".join(summary.unsupported_markets),
+            style="yellow",
+        )
+
+
 @app.command("rankings")
 def rankings(
     app_id: int | None = typer.Option(None, "--app-id"),
@@ -709,7 +735,9 @@ def report(
 @app.command("dashboard")
 def dashboard(
     host: str = typer.Option("127.0.0.1", "--host", help="Local interface to bind."),
-    port: int = typer.Option(8765, "--port", min=1, max=65535),
+    port: int = typer.Option(
+        8765, "--port", min=0, max=65535, help="Port to bind; 0 picks a free port."
+    ),
     mcp_enabled: bool = typer.Option(
         True,
         "--mcp/--no-mcp",
@@ -731,7 +759,11 @@ def dashboard(
             "Warning: binding beyond loopback exposes the dashboard to your local network.",
             style="yellow",
         )
-    if mcp_enabled and mcp_port == port:
+    with session_scope() as session:
+        interrupted = mark_interrupted_runs(session)
+    if interrupted:
+        emit(f"Marked {interrupted} unfinished audit(s) as interrupted.", style="yellow")
+    if mcp_enabled and port and mcp_port == port:
         if port >= 65535:
             raise typer.BadParameter("cannot select an MCP port when --port is 65535")
         mcp_port = port + 1

@@ -71,7 +71,7 @@ def test_onboarding_can_persist_the_selected_research_agent(
 ) -> None:
     monkeypatch.setattr(
         "local_aso_tracker.web.server.provider_status",
-        lambda: [
+        lambda **_paths: [
             AgentProvider("codex", "Codex", True),
             AgentProvider("claude", "Claude", True),
         ],

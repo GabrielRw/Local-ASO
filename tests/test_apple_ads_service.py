@@ -95,9 +95,14 @@ class FakeAppleAdsClient:
     def keyword_suggestions(
         self,
         *_args: object,
+        terms: list[str],
         **_kwargs: object,
     ) -> list[AppleAdsSuggestionRecord]:
-        return [AppleAdsSuggestionRecord("astrology birth chart", 14)]
+        # Apple returns the requested term plus related terms scored relative to it.
+        return [
+            AppleAdsSuggestionRecord(terms[0].upper(), 31),
+            AppleAdsSuggestionRecord("astrology birth chart", 64),
+        ]
 
 
 @pytest.fixture
@@ -146,7 +151,13 @@ def test_apple_ads_sync_persists_keywords_metrics_and_suggestions(
     assert payload["keywords"][0]["asoRank"] == 1  # type: ignore[index]
     assert payload["keywordCountries"][0]["code"] == "US"  # type: ignore[index]
     assert payload["keywordCountries"][0]["keywords"][0]["country"] == "US"  # type: ignore[index]
-    assert payload["suggestions"][0]["popularity"] == 14  # type: ignore[index]
+    suggestions = {item["text"].casefold(): item["popularity"] for item in payload["suggestions"]}  # type: ignore[attr-defined]
+    # Related suggestions are relative to their seed, so they carry no score of their own.
+    assert suggestions["astrology birth chart"] is None
+    # A seed that Apple echoed back exactly keeps its own score.
+    assert 31 in suggestions.values()
+    # Tracked keywords were measured one by one with their own exact match.
+    assert payload["sync"]["popularity"]["measured"] >= 1  # type: ignore[index]
     assert payload["sync"]["keywords"] == 1  # type: ignore[index]
 
 

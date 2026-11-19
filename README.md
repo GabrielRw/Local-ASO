@@ -4,7 +4,7 @@ Local ASO Tracker is an open-source, local-first App Store keyword rank tracker 
 
 There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. Core rank tracking uses Apple’s public iTunes Search API. An optional read-only Apple Ads integration can import campaign targeting, bids, and performance when local API OAuth credentials are supplied. The dashboard can render artwork and screenshots hosted by Apple. No Apple login is required; Apple Ads OAuth credentials are optional.
 
-> This tracks public search-result positions, not guaranteed on-device App Store ranks. Apple does not expose search volume or downloads, so the dashboard's volume and difficulty values are clearly labeled local estimates derived from matching-app ratings.
+> This tracks public search-result positions, not guaranteed on-device App Store ranks. Apple does not expose search volume or downloads. When the optional Apple Ads integration is set up, the Popularity column shows Apple Ads' own 5–100 search popularity for each keyword; otherwise it falls back to a local estimate marked with `~`. Difficulty is always a local estimate derived from matching-app ratings.
 
 ## Features
 
@@ -18,6 +18,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Competitor keyword matrix with apps as columns, tracked keywords as rows, and refreshed rank positions.
 - Ratings-based audience and top-10 competition estimates, stored separately with each successful check.
 - App-wide Niche research boards powered by a locally installed Codex or Claude CLI, with unlimited country columns and on-demand refreshes.
+- App Audit tab that analyzes one selected storefront at a time with Codex/Claude, verifies recommended phrases against Apple, and shows deterministic findings, scores, and keyword opportunities.
+- Localized listing studio that generates reviewed Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New drafts with Codex/Claude, audits them against the selected ASO strategy, and pushes approved text metadata through App Store Connect.
 - Optional read-only Apple Ads reporting for current targeting keywords, bids, spend, taps, installs, and Apple keyword suggestions.
 - The first five returned apps for each keyword, displayed as Apple artwork with hover/focus names.
 - Public listing-health review, screenshot previews when available, and competitor comparison.
@@ -31,6 +33,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Quick start](#quick-start)
 - [Using the dashboard](#using-the-dashboard)
 - [Niche research](#niche-research)
+- [App audits](#app-audits)
+- [Localized App Store listings](#localized-app-store-listings)
 - [Competitor keyword matrix](#competitor-keyword-matrix)
 - [Apple Ads reporting](#apple-ads-reporting)
 - [Local MCP server](#local-mcp-server)
@@ -41,10 +45,11 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Exports and report](#exports-and-report)
 - [Scheduling](#local-scheduling), [backup](#backup-and-restore), and [troubleshooting](#troubleshooting)
 - [Development](#development)
+- [Desktop app (macOS)](#desktop-app-macos)
 
 ## Quick start
 
-You need Git and [`uv`](https://docs.astral.sh/uv/getting-started/installation/). The app requires Python 3.12 or newer; `uv` can obtain the version specified in `.python-version` if needed. The dashboard has no Node.js, npm, or frontend build requirement.
+You need Git and [`uv`](https://docs.astral.sh/uv/getting-started/installation/). The app requires Python 3.12 or newer; `uv` can obtain the version specified in `.python-version` if needed. Running the dashboard needs no Node.js: its built files are committed. Node and pnpm are only needed to change the frontend (see [Development](#development)). Prefer a Mac app? See [Desktop app](#desktop-app-macos).
 
 Common ways to install `uv`:
 
@@ -75,7 +80,7 @@ On the first launch, the three-step setup guide asks you to:
 
 1. Paste your app’s App Store URL or numerical app ID and choose its storefront.
 2. Enter keywords separated by commas or new lines, select iPhone or iPad, and open the dashboard. Keywords are optional; if supplied, their first ranking check runs automatically.
-3. Choose Auto-detect, Codex, or Claude as the preferred local agent for Niche research. Unavailable CLIs are disabled.
+3. Choose Auto-detect, Codex, or Claude as the preferred local agent for Niche research and App audits. Unavailable CLIs are disabled.
 
 For example, the app ID in `https://apps.apple.com/us/app/example/id123456789` is `123456789`. Use your real App Store ID, not your bundle ID or an Apple Ads account ID.
 
@@ -98,17 +103,16 @@ uv run aso dashboard --no-open --no-mcp
 
 ## Using the dashboard
 
-1. **Choose an app.** Use the app list in the left sidebar. **+ Add app** imports another app by numerical App Store ID; its public name and listing details come from Apple. The small **×** on an app row removes it from the visible workspace after confirmation while preserving its tracking and history. Adding the same App Store ID again restores it.
-2. **Choose a country and device.** The storefront and device selectors control the visible ranking rows. iPhone and iPad have independent tracking targets and history; changing devices does not combine their ranks.
-3. **Add keywords.** Click **+ Add keyword**, enter terms such as `notes, quick notes, daily journal`, then select one or more storefronts and devices. Duplicates are ignored. Each selected combination receives an automatic first rank check. **Localize selected** previews curated French and Spanish market phrases before anything is added.
-4. **Refresh results.** Use **Run check** for the selected app, storefront, and device. A target with a successful check in the last 24 hours is skipped, while missing, failed, or stale checks remain eligible. Later checks create history rather than overwriting previous results, and Apple failures are reported so you can retry.
-5. **Explore history.** Filter the keyword table, then click a keyword row to see its historical ranks. Better ranks are shown higher in the chart. The **Overall rank trend** card at the bottom aggregates the daily average of found keywords across the selected storefront/device. Use **×** to stop tracking a target without deleting its existing history.
-6. **Review the listing.** The **Listing health** tab shows a public-data completeness heuristic, a score breakdown, screenshots when Apple returns their URLs, and suggested improvements. This is not an Apple score.
-7. **Audit listing strategy.** In **Listing health**, first choose **ASO / SEO / AEO** or **UGC / Ads**, confirm the brand term and storefront, then paste the subtitle and keyword field from App Store Connect. The audit checks repeated words across title, subtitle, and keyword field; verifies the goal-specific title order; and separates tracked keyword matches from metadata terms that are not yet tracked.
-8. **Compare apps.** Open a keyword’s Top 5 result stack under **Keywords**, click an app icon, and choose **Add to competitors**. The **Competitors** tab then shows the keyword-by-app rank matrix. The existing public-listing comparison remains lower on the same tab.
-9. **Review paid search.** When Apple Ads OAuth credentials are configured, open **Paid search** to discover the accessible ad account, import current campaigns and targeting keywords, and compare Apple-reported spend and installs. The panel also shows suggestions seeded by the app’s best ASO keywords.
+The sidebar holds the app switcher (add or remove apps from its menu), the app views, Niche research, and Settings (setup guide, local AI agent, light/dark/system appearance). The header of every app view has the storefront and device pickers; iPhone and iPad rankings are tracked separately.
 
-**Setup guide** in the sidebar reopens onboarding anytime. The default storefront catalog includes Australia, Canada, France, the United Kingdom, and the United States. To add another storefront, use the [country CLI commands](#countries), then refresh the dashboard.
+1. **Audit** (start here). Run a 0–100 audit for the selected storefront: discovery by your local Claude or Codex CLI, a native-language review, Apple rank checks, and an editor pass that keeps only evidence-backed findings. Recommended keywords are sorted by opportunity and can be tracked in one click; searches for competitor app names are listed separately as Apple Ads keywords. **All markets** shows the latest audit per storefront. **AI agent** sets or tests the CLI paths.
+2. **Keywords.** Top 10 / Top 50 / average-rank cards with 7- and 30-day trends (click for history), the sortable rankings table (popularity, difficulty, Top 5 apps, change, signal), **Run check** for stale targets, **Add keywords** (several storefronts and devices at once, with an optional localized preview), a per-keyword history chart, the overall rank trend, and “Losing to”. Click a Top 5 icon to add that app to Competitors.
+3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, screenshots Apple returns, and the localization studio that drafts, reviews, and pushes localized metadata to an editable App Store Connect version.
+4. **Competitors.** The keyword-by-app rank matrix with **Refresh rankings**, plus a side-by-side public listing comparison.
+5. **Paid search.** Read-only Apple Ads: account setup, 30-day spend and installs, campaigns, keywords by country, and Apple's keyword suggestions with their measured popularity.
+6. **Niche research.** Brainstorm a keyword board for an idea that is not tied to an app yet, then check it across storefronts.
+
+**Settings → Setup guide** reopens onboarding anytime. The default storefront catalog includes Australia, Canada, France, the United Kingdom, and the United States. To add another storefront, use the [country CLI commands](#countries), then refresh the dashboard.
 
 The dashboard is a local tool without authentication. Keep the default loopback address; do not expose it on a public server or bind it to an untrusted network.
 
@@ -119,7 +123,7 @@ When the dashboard starts, a daemon worker begins refreshing active app/keyword/
 **Niche research** is an app-wide keyword workspace. It is intentionally independent from the apps in the left sidebar and does not use an app's rank history.
 
 1. Open **Niche research**, describe the audience or product idea, and choose **Codex**, **Claude**, or **Auto-detect**.
-2. **Brainstorm 10 keywords** asks the selected CLI for keyword phrases only. The local model never supplies volume, difficulty, or rank values.
+2. **Brainstorm 10 keywords** asks the selected CLI for keyword phrases only. The model never supplies volume, difficulty, or rank values.
 3. The board creates one column for each selected storefront and runs the first public Apple search check automatically. Add or remove storefront columns at any time; the table scrolls horizontally as the board grows.
 4. **Check now** refreshes every keyword/storefront pair. Cell values are the same transparent 0–100 ratings-based volume and difficulty estimates used elsewhere in the dashboard. A successful search with no public rating signals is shown as **No rated matches**, while an Apple request failure is shown as **Check failed**.
 5. Use the right-hand agent input to request more phrases, such as `Add 5 beginner keywords`. New phrases are deduplicated, appended to the board, and checked across every board storefront automatically.
@@ -130,8 +134,76 @@ The optional agent settings in `config.toml` are:
 
 ```toml
 agent_provider = "auto"
+agent_codex_path = ""
+agent_claude_path = ""
 agent_timeout = 120.0
 ```
+
+Codex and Claude are invoked as local processes, but the selected CLI may send prompts to its configured model provider. Review that provider’s data policy and CLI settings before using private listing drafts. Local ASO itself has no hosted AI fallback.
+
+## App audits
+
+The **Audit** tab evaluates one selected storefront at a time for the current app. It runs a specialist pipeline through the locally installed Codex or Claude CLI, then checks every proposed phrase against Apple’s public App Store search results. The model does not supply ranks or scores.
+
+The pipeline is deliberately split into focused passes:
+
+1. **Market intent discovery** proposes realistic search phrases in the storefront’s audit language.
+2. **Native-language listing review** inspects saved name, subtitle, keyword field, public listing data, repetition, and title strategy. It may propose additional native phrases, but it cannot assert rankings or Apple metrics.
+3. **Apple verification** checks every discovered phrase and stores the returned rank or the exact result-window limit, plus the existing ratings-based volume and difficulty estimates.
+4. **Evidence editor** selects the strongest localization, metadata, high-demand gap, quick-win, rank-defense, and copy findings. Every model finding must cite supplied evidence IDs, and highlighted terms must already exist in stored metadata or verified keyword evidence.
+
+If a specialist pass fails or returns unsupported evidence, the audit falls back to deterministic checks rather than inventing a conclusion. A failed Apple request remains visibly failed; absence from the retrieved results remains `>limit`, never an exact lower rank.
+
+Each storefront is assigned one primary audit language. For example, U.S. audits use English only, French audits use French, and Spain/Mexico audits use Spanish. The agent is explicitly prevented from mixing translations into a market audit; run a separate country audit for each language market you care about.
+
+1. Open **Audit** and choose the storefront to audit. The device follows the dashboard’s current iPhone/iPad selector. Run a separate audit for another country when needed.
+2. Choose Auto-detect, Codex, or Claude. **Show AI agent** reveals optional executable paths and a **Test connection** action. These settings are stored locally in `config.toml`; the CLI may process the submitted app context according to its own provider configuration.
+3. Start the audit. The progress strip moves through discovery, native-language review, Apple verification, and findings editing while the dashboard remains usable.
+4. Review the deterministic score, evidence-grounded findings, country breakdown, and recommended keyword matrix or list. Finding badges identify localization, metadata, visibility, opportunity, competition, and copy actions.
+5. Use **Discover more** on a selected country to give the local agent another instruction. The next round includes existing audit and tracked phrases, reruns the specialized review and editor, checks only new suggestions, and appends them without replacing earlier discoveries.
+6. Select keywords to add them to normal rank tracking. Every result preserves Apple uncertainty as a returned rank, `>limit`, or an explicit failed state.
+
+The audit score is calculated from stored facts:
+
+- 40% current Top 10 visibility among tracked phrases
+- 30% overlap between recommended intent phrases and saved localized listing metadata
+- 20% completeness of localized listing metadata
+- 10% competition opportunity from the existing ratings-based difficulty estimate
+
+The displayed volume, difficulty, and opportunities remain transparent estimates derived from public matching-app ratings. They are not Apple search volume, downloads, or a proprietary difficulty score. Missing localized metadata is reported as missing rather than inferred.
+
+Audit runs and their country findings, recommended keywords, Apple evidence, provider, device, status, and scores are stored in SQLite. Successful checks use the same public Apple Search client and conservative request spacing as the rest of the dashboard.
+
+## Localized App Store listings
+
+**Listing health → Listing localization** turns one confirmed source listing into localized App Store text metadata. The first release covers Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New. It does not replace screenshots, previews, icons, or other media.
+
+1. Choose the main listing storefront. Its App Store locale is the source. Countries that share a target locale are generated once, so Mexico and Ecuador both map to the Spanish (Mexico) localization.
+2. Select any number of target countries and choose Auto-detect, Codex, or Claude. The agent receives the source fields, brand term, distribution goal, and relevant App Store Audit phrases. It must return all six text fields in the target language.
+3. The backend checks character limits, repeated meaningful words, branded-title order, and unchanged support/marketing URLs. Up to three automatic correction rounds run before the draft is shown.
+4. Edit the fields if needed and choose **Save & re-audit**. Blocking issues disable approval.
+5. Review the draft and choose **Approve**, then **Push to Apple**. The final write always requires confirmation in a separate dialog.
+
+The push uses App Store Connect's official API and never submits the app for review. It updates the existing App Info and App Store Version localization for the target locale, or creates those localization records when they do not exist. Support, marketing, and privacy URLs are copied from the source locale only when a new localization is created; the studio never rewrites them on existing metadata. The latest iOS version must be in an editable state such as **Prepare for Submission**; a live version is rejected before any metadata is written. Each attempt is recorded locally. Before and after values are retained in SQLite for audit purposes, but the dashboard does not offer one-click rollback; restore the desired values from the stored draft history and push again.
+
+### App Store Connect API key
+
+The API key belongs to the local user and is not included in this project:
+
+1. In App Store Connect, open **Users and Access → Integrations → App Store Connect API**.
+2. Create a key with an App Manager or Admin role that can access the app. Record the Issuer ID and Key ID.
+3. Download the `.p8` private key immediately. Apple only allows the download once.
+4. Store it outside the repository, for example:
+
+```bash
+mkdir -p ~/.local-aso-tracker/app-store-connect
+mv ~/Downloads/AuthKey_XXXXXXXXXX.p8 ~/.local-aso-tracker/app-store-connect/
+chmod 600 ~/.local-aso-tracker/app-store-connect/AuthKey_XXXXXXXXXX.p8
+```
+
+5. In the dashboard, enter the Issuer ID, Key ID, and private-key path, save, and choose **Test connection**.
+
+The private key is read only by the local Python backend. It is never returned by the API, rendered in the browser, written to logs, or included in exports. A group- or world-readable key is rejected. The app bundle ID configured in Local ASO must be visible to the API key. If no App Store Connect credentials are configured, localization generation falls back to the public App Store listing for the source country; private remote metadata is not accessed.
 
 ## Competitor keyword matrix
 
@@ -173,7 +245,22 @@ To connect:
 
 The 30-day report includes each keyword’s configured bid, match type, status, local spend, impressions, taps, tap installs, total installs, and cost per tap. The Paid search keyword table is grouped by the campaign’s Apple Ads country targeting rather than by campaign; a keyword used in multiple campaigns is aggregated into one country row with a campaign count. Paused keywords, including keywords in paused campaigns, are hidden by default and can be revealed with **Show paused**. Clicking an ASO Rank value refreshes that keyword/country/device ranking; a `⌕` value creates the missing local storefront and tracking target first. Keyword reports require one Apple Ads campaign query each, so larger accounts naturally take longer to synchronize. Apple Ads uses its own rate limits; the local client retries transient HTTP 429 and 5xx responses conservatively.
 
-The suggestion section calls Apple’s read-only keyword-suggestion endpoint with the app ID, selected storefront, and up to 20 highest-ranking locally tracked ASO keywords. Apple’s returned popularity score is a relative suggestion signal and is not search volume. Suggested terms can be added to the local ASO tracker, but are never written back to Apple Ads.
+The suggestion section calls Apple’s read-only keyword-suggestion endpoint with the app ID, selected storefront, and up to 20 highest-ranking locally tracked ASO keywords. Suggested terms can be added to the local ASO tracker, but are never written back to Apple Ads.
+
+### Apple Ads keyword popularity
+
+Apple scores every suggestion relative to the term it was requested with, so only the suggestion whose text *is* the requested keyword carries that keyword's own popularity. Local ASO therefore requests each tracked keyword on its own, per storefront, keeps only that exact match, and discards the related suggestions' scores. The measurement is stored in `keyword_popularity` and refreshed after 7 days: by the dashboard's startup and daily sync, by **Sync Apple Ads**, or manually:
+
+```bash
+uv run aso popularity
+uv run aso popularity --country us --force
+```
+
+- The scale is 5–100. **5 is Apple's floor** ("too few searches to rank") and is displayed as **Low**; most niche keywords sit there.
+- If Apple returns no exact match, that is remembered too, so the keyword is not re-requested until the 7-day window passes.
+- Any app promoted by a campaign in the selected account can score every keyword; one is required.
+- Storefronts Apple Ads does not serve (for example Belize) are skipped for the run.
+- Without Apple Ads, the Popularity column shows the local ratings-based estimate prefixed with `~`. Related suggestions in **Paid search** show a score only where it was measured for that exact term.
 
 ## Local MCP server
 
@@ -258,6 +345,8 @@ By default all mutable data stays under:
 ~/.local-aso-tracker/
 ├── aso.db
 ├── config.toml
+├── app-store-connect/
+│   └── AuthKey_XXXXXXXXXX.p8
 ├── apple-ads-oauth/
 │   └── client-secret.jwt
 └── logs/aso.log
@@ -279,7 +368,7 @@ $env:ASO_DATA_DIR = Join-Path $PWD ".local-aso-data"
 uv run aso dashboard
 ```
 
-`config.toml` contains no secrets. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `agent_provider`, `agent_timeout`, `apple_ads_account_id`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window. `apple_ads_account_id = 0` means that no ad account has been selected.
+`config.toml` contains no secret key material. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `agent_provider`, `agent_codex_path`, `agent_claude_path`, `agent_timeout`, `app_store_connect_issuer_id`, `app_store_connect_key_id`, `app_store_connect_key_path`, `apple_ads_account_id`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window. `apple_ads_account_id = 0` means that no ad account has been selected.
 
 Example configuration:
 
@@ -290,7 +379,12 @@ request_delay = 1.0
 concurrency = 2
 result_limit = 200
 agent_provider = "auto"
+agent_codex_path = ""
+agent_claude_path = ""
 agent_timeout = 120.0
+app_store_connect_issuer_id = ""
+app_store_connect_key_id = ""
+app_store_connect_key_path = ""
 apple_ads_account_id = 0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264
@@ -539,7 +633,7 @@ The real Apple integration test is marked `integration` and skipped unless expli
 ASO_RUN_INTEGRATION=1 uv run pytest -m integration
 ```
 
-Migrations live in `migrations/`; application code is under `src/local_aso_tracker/`. Tests use temporary SQLite databases and mocked HTTP responses by default.
+Migrations live in `src/local_aso_tracker/migrations/` and ship with the package; application code is under `src/local_aso_tracker/`. Tests use temporary SQLite databases and mocked HTTP responses by default.
 
 Run the project from its repository checkout as shown above. The source layout keeps responsibilities separate:
 
@@ -554,10 +648,34 @@ src/local_aso_tracker/
 ├── services/              # rank checks, analytics, and listing health
 ├── reports/               # CSV/JSON exports and offline HTML generation
 ├── utils/                 # rotating local logs
-└── web/                   # local HTTP server and packaged HTML/CSS/JavaScript
+└── web/                   # local HTTP server; static/ holds the built dashboard
+
+frontend/                  # dashboard source: React, TypeScript, Tailwind, shadcn/ui
+desktop/                   # macOS app: Tauri shell, loading page, PyInstaller spec
+scripts/build-macos.sh     # frontend → bundled server → .app/.dmg
 ```
 
-The dashboard assets are dependency-free and ship with the Python application. Do not add fabricated metrics or convert missing ranks into an asserted position outside Apple’s returned window. See [AGENTS.md](AGENTS.md) for contributor checks and architectural constraints.
+To work on the dashboard, install Node and pnpm, then run the Python server and the Vite dev server side by side (Vite proxies `/api` to port 8765):
+
+```bash
+uv run aso dashboard --no-open
+pnpm --dir frontend install
+pnpm --dir frontend dev
+```
+
+Before committing frontend changes, run `pnpm --dir frontend typecheck`, `lint`, `test`, and `build`, and commit the rebuilt `src/local_aso_tracker/web/static/`. Display rules (missing ranks as `>limit`, `~` for local estimates, Apple's popularity floor as "Low") live in `frontend/src/lib/format.ts`. Do not add fabricated metrics or convert missing ranks into an asserted position outside Apple’s returned window. See [AGENTS.md](AGENTS.md) for contributor checks and architectural constraints.
+
+## Desktop app (macOS)
+
+The Mac app wraps the same dashboard. On launch it starts the bundled server on a free local port, waits for it, and opens the dashboard in its own window; quitting stops the server cleanly. It uses the same data folder as the CLI (`~/.local-aso-tracker`), so your apps and history appear in both. External links (App Store pages) open in your default browser. Local AI audits use the Claude or Codex CLI installed on your Mac; the app also looks in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` because apps launched from the Dock don't inherit your shell `PATH`. Set an explicit path under **Audit → AI agent** if needed.
+
+Build it (needs uv, Node + pnpm, Rust, and Xcode command line tools):
+
+```bash
+./scripts/build-macos.sh
+```
+
+The app and DMG land in `desktop/src-tauri/target/release/bundle/`. Local builds are ad-hoc signed, so macOS asks you to confirm the first launch (right-click → Open). To distribute it, sign with a Developer ID and notarize: set `APPLE_SIGNING_IDENTITY` (and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` for notarization) before running the script. Apple Silicon (arm64) only for now.
 
 ## License
 

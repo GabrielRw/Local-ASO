@@ -26,7 +26,12 @@ class Settings(BaseModel):
     concurrency: int = Field(default=2, ge=1, le=10)
     result_limit: int = Field(default=200, ge=1, le=200)
     agent_provider: Literal["auto", "codex", "claude"] = "auto"
+    agent_codex_path: str = ""
+    agent_claude_path: str = ""
     agent_timeout: float = Field(default=120.0, ge=10, le=600)
+    app_store_connect_issuer_id: str = ""
+    app_store_connect_key_id: str = ""
+    app_store_connect_key_path: str = ""
     apple_ads_account_id: int = Field(default=0, ge=0)
     default_countries: list[str] = Field(default_factory=lambda: ["us", "fr", "gb", "ca", "au"])
     default_app_id: int = 6771773264
@@ -105,7 +110,12 @@ request_delay = 1.0
 concurrency = 2
 result_limit = 200
 agent_provider = "auto"
+agent_codex_path = ""
+agent_claude_path = ""
 agent_timeout = 120.0
+app_store_connect_issuer_id = ""
+app_store_connect_key_id = ""
+app_store_connect_key_path = ""
 apple_ads_account_id = 0
 default_countries = ["us", "fr", "gb", "ca", "au"]
 default_app_id = 6771773264

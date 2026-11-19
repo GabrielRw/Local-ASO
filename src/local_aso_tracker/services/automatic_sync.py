@@ -16,6 +16,10 @@ from local_aso_tracker.database import session_scope
 from local_aso_tracker.models import TrackingTarget
 from local_aso_tracker.repositories.data import filter_targets_due_for_check, list_targets
 from local_aso_tracker.services.checks import CheckRunResult, run_checks
+from local_aso_tracker.services.keyword_popularity import (
+    popularity_configured,
+    refresh_keyword_popularity,
+)
 
 logger = logging.getLogger(__name__)
 SECONDS_PER_DAY = 24 * 60 * 60
@@ -41,6 +45,7 @@ def sync_all_current_keywords(
 
     settings = load_settings()
     runner = check_runner or run_checks
+    _refresh_popularity_quietly()
     with session_scope() as session:
         targets = list_targets(session, active_only=True)
         if not targets:
@@ -58,6 +63,25 @@ def sync_all_current_keywords(
         searches=result.searches,
         failures=result.failures,
         skipped=skipped,
+    )
+
+
+def _refresh_popularity_quietly() -> None:
+    """Refresh stale Apple Ads popularity when Apple Ads is set up; never block rank checks."""
+
+    try:
+        if not popularity_configured():
+            return
+        summary = refresh_keyword_popularity()
+    except Exception as exc:
+        logger.warning("Apple Ads popularity refresh skipped: %s", exc)
+        return
+    logger.info(
+        "Apple Ads popularity refresh: measured=%s missing=%s skipped=%s failures=%s",
+        summary.measured,
+        summary.missing,
+        summary.skipped,
+        summary.failures,
     )
 
 

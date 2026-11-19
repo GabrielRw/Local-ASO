@@ -1,0 +1,23 @@
+[package]
+name = "local-aso"
+version = "0.1.0"
+description = "Local ASO desktop app"
+edition = "2021"
+publish = false
+
+[lib]
+name = "local_aso_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+libc = "0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

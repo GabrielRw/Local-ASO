@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -883,7 +884,7 @@ def _run_codex(
     schema: dict[str, Any] | None = None,
     executable: str | None = None,
 ) -> dict[str, Any]:
-    executable = executable or shutil.which("codex")
+    executable = executable or _find_cli("codex")
     if executable is None:
         raise AgentError("codex CLI is not installed or not available on PATH")
     with tempfile.TemporaryDirectory(prefix="local-aso-codex-") as temp_dir:
@@ -971,7 +972,7 @@ def _run_claude(
     schema: dict[str, Any] | None = None,
     executable: str | None = None,
 ) -> dict[str, Any]:
-    executable = executable or shutil.which("claude")
+    executable = executable or _find_cli("claude")
     if executable is None:
         raise AgentError("claude CLI is not installed or not available on PATH")
     command = [
@@ -1084,14 +1085,65 @@ def _parse_json_object(value: str) -> dict[str, Any]:
     return parsed
 
 
+# Where CLI installers put executables. A macOS app launched from Finder or the
+# Dock inherits launchd's minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin), so
+# ``shutil.which`` alone would not find a Homebrew, npm, or native-installer CLI.
+_EXTRA_BIN_DIRS = (
+    "~/.local/bin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/.npm-global/bin",
+    "~/.bun/bin",
+    "~/.volta/bin",
+    "~/.claude/local",
+)
+_LOGIN_SHELL_PATH: list[str] | None = None
+
+
+def _login_shell_path() -> list[str]:
+    """PATH entries from the user's login shell, read once; empty on any failure."""
+
+    global _LOGIN_SHELL_PATH
+    if _LOGIN_SHELL_PATH is None:
+        entries: list[str] = []
+        shell = os.environ.get("SHELL") or "/bin/zsh"
+        try:
+            completed = subprocess.run(
+                [shell, "-lc", 'printf %s "$PATH"'],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            if completed.returncode == 0:
+                entries = [item for item in completed.stdout.strip().split(os.pathsep) if item]
+        except (OSError, subprocess.TimeoutExpired):
+            entries = []
+        _LOGIN_SHELL_PATH = entries
+    return _LOGIN_SHELL_PATH
+
+
+def _find_cli(name: str) -> str | None:
+    found = shutil.which(name)
+    if found:
+        return found
+    for folder in _EXTRA_BIN_DIRS:
+        candidate = Path(folder).expanduser() / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    login_path = os.pathsep.join(_login_shell_path())
+    return shutil.which(name, path=login_path) if login_path else None
+
+
 def _resolve_provider_executable(provider: str, configured: str = "") -> str | None:
     value = configured.strip()
     if value:
         candidate = Path(value).expanduser()
         if candidate.is_file():
             return str(candidate)
-        resolved = shutil.which(value)
+        resolved = _find_cli(value)
         if resolved:
             return resolved
         return None
-    return shutil.which(provider)
+    return _find_cli(provider)

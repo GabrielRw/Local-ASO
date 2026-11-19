@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Local ASO",
+  "version": "0.1.0",
+  "identifier": "app.localaso.desktop",
+  "build": {
+    "frontendDist": "../loading"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "category": "DeveloperTool",
+    "shortDescription": "Local App Store keyword research and rank tracking",
+    "copyright": "MIT License, Local ASO Tracker contributors",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": {
+      "../build/aso-server/": "aso-server/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    }
+  }
+}

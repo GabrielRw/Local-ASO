@@ -8,8 +8,10 @@ from sqlalchemy import engine_from_config, pool
 from local_aso_tracker.models import Base
 
 config = context.config
+# Only the alembic CLI (repo-root alembic.ini) configures logging here; the app
+# builds its Config in code and keeps its own handlers.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
 
 

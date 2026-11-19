@@ -48,13 +48,25 @@ def session_scope(engine: Engine | None = None) -> Iterator[Session]:
         session.close()
 
 
+MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
+
+
+def alembic_config(path: Path | None = None) -> Config:
+    """Alembic settings built in code, so migrations run from a wheel or a frozen app.
+
+    The migrations ship inside the package; no ``alembic.ini`` or source checkout is
+    needed. Logging is left to the application (no ini file means no ``fileConfig``).
+    """
+
+    db = path or database_path()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db}")
+    return config
+
+
 def run_migrations(path: Path | None = None) -> None:
     """Upgrade the configured local database to the latest schema."""
 
-    root = Path(__file__).resolve().parents[2]
-    config = Config(root / "alembic.ini")
-    db = path or database_path()
-    db.parent.mkdir(parents=True, exist_ok=True)
-    config.set_main_option("script_location", str(root / "migrations"))
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{db}")
-    command.upgrade(config, "head")
+    command.upgrade(alembic_config(path), "head")

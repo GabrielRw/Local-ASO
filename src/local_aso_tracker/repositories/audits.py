@@ -179,7 +179,37 @@ def audit_dashboard_payload(
             for run in runs
         ],
         "run": _run_payload(selected, storefront_names) if selected is not None else None,
+        "latestByCountry": [
+            {
+                "id": run.id,
+                "status": run.status,
+                "country": run.country_code,
+                "countryName": storefront_names.get(
+                    run.country_code or "", (run.country_code or "").upper()
+                ),
+                "device": run.device,
+                "provider": run.provider,
+                "score": run.score,
+                "createdAt": _iso(run.created_at),
+                "completedAt": _iso(run.completed_at),
+            }
+            for run in latest_audit_runs_by_country(session, app_id)
+        ],
     }
+
+
+def latest_audit_runs_by_country(session: Session, app_id: int) -> list[AuditRun]:
+    """The newest current-policy run for each storefront and device, for an overview."""
+
+    latest: dict[tuple[str | None, str], AuditRun] = {}
+    query = _run_query().where(
+        AuditRun.app_id == app_id,
+        AuditRun.scope == "country",
+        AuditRun.prompt_version == AUDIT_PROMPT_VERSION,
+    )
+    for run in session.scalars(query.order_by(AuditRun.created_at.desc(), AuditRun.id.desc())):
+        latest.setdefault((run.country_code, run.device), run)
+    return sorted(latest.values(), key=lambda run: (run.country_code or "", run.device))
 
 
 def add_audit_finding(
@@ -473,3 +503,28 @@ def catalog_app_names(session: Session) -> list[tuple[int, str]]:
     for app_id, name in session.execute(select(App.apple_app_id, App.name)):
         rows.setdefault(int(app_id), name)
     return list(rows.items())
+
+
+INTERRUPTED_MESSAGE = "Interrupted: the app closed before this audit finished."
+_FINAL_STATUSES = {"success", "partial", "error", "cancelled"}
+
+
+def mark_interrupted_runs(session: Session) -> int:
+    """Close audits left queued or running by a previous process; returns how many.
+
+    Audit workers are threads of the dashboard process, so after a restart nothing
+    will ever finish these runs. They are marked as errors the user can rerun.
+    """
+
+    now = datetime.now(UTC)
+    runs = list(session.scalars(select(AuditRun).where(AuditRun.status.in_(("queued", "running")))))
+    for run in runs:
+        run.status = "error"
+        run.error_message = INTERRUPTED_MESSAGE
+        run.completed_at = now
+        for country in run.countries:
+            if country.status not in _FINAL_STATUSES:
+                country.status = "error"
+                country.error_message = INTERRUPTED_MESSAGE
+                country.completed_at = now
+    return len(runs)

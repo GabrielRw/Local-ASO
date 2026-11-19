@@ -1,207 +1,75 @@
-"""Packaged dashboard asset regression tests."""
+"""The packaged dashboard build: present, CSP-compatible, and free of secrets.
 
+The UI source lives in `frontend/` (React); its production build is committed to
+`src/local_aso_tracker/web/static/` so the dashboard runs without Node.
+"""
+
+from __future__ import annotations
+
+import re
 from importlib.resources import files
 
-
-def test_dashboard_assets_are_packaged_with_required_workflows() -> None:
-    static = files("local_aso_tracker.web").joinpath("static")
-    html = static.joinpath("index.html").read_text(encoding="utf-8")
-    script = static.joinpath("app.js").read_text(encoding="utf-8")
-    styles = static.joinpath("styles.css").read_text(encoding="utf-8")
-
-    assert 'id="keywordModal"' in html
-    assert 'id="appModal"' in html
-    assert 'id="confirmModal"' in html
-    assert 'id="comparisonCard"' in html
-    assert 'id="screenshotGallery"' in html
-    assert 'id="deviceSelect"' in html
-    assert 'id="deviceChecks"' in html
-    assert 'id="localizeKeywordsButton"' in html
-    assert 'id="localizationPreview"' in html
-    assert 'id="localizationStudio"' in html
-    assert 'id="localizationPushModal"' in html
-    assert 'id="confirmLocalizationPush"' in html
-    assert 'id="appTooltip"' in html
-    assert 'id="deleteAppModal"' in html
-    assert 'id="confirmDeleteApp"' in html
-    assert 'id="overallRankChart"' in html
-    assert 'id="overallAverageRank"' in html
-    assert 'id="countryVisibility"' in html
-    assert 'id="losingCard"' in html
-    assert 'id="losingGrid"' in html
-    assert 'id="metricHistoryModal"' in html
-    assert 'id="metricHistoryChart"' in html
-    assert 'id="coverageCard"' in html
-    assert 'data-tab="audit"' in html
-    assert 'id="auditPanel"' in html
-    assert 'id="auditContent"' in html
-    assert "window.confirm" not in script
-    assert "targetsReactivated" in script
-    assert "screenshotStatus" in script
-    assert "countryFlag" in script
-    assert "keywordsRequested" in script
-    assert "automaticCheck" in script
-    assert "estimateCell" in script
-    assert "volumeEstimate" in script
-    assert "difficultyEstimate" in script
-    assert "topAppsCell" in script
-    assert "rankingHeaderClick" in script
-    assert "sortRankingRows" in script
-    assert 'id="rankingsHeader"' in html
-    assert 'data-rank-sort="volume"' in html
-    assert 'data-rank-sort="volume">Popularity' in html
-    assert "popularityCell" in script
-    assert "popularityStatus" in script
-    assert ".rank-sort-button" in styles
-    assert "showTopAppTooltip" in script
-    assert "app-delete-button" in script
-    assert "/api/apps/deactivate" in script
-    assert "metricTrend" in script
-    assert "queuedCheckTargets" in script
-    assert "row-check-state" in script
-    assert ".row-check-state" in styles
-    assert "metricTrends30d" in script
-    assert 'label: "Tracked"' not in script
-    assert 'label: "Not visible"' not in script
-    assert "renderOverallRankHistory" in script
-    assert "renderLosingTo" in script
-    assert "losingRatingMarkup" in script
-    assert ".losing-rating" in styles
-    assert "renderCountryVisibility" in script
-    assert "data-country-card" in script
-    assert "monitorAutomaticSync" in script
-    assert "/api/sync-status" in script
-    assert 'id="syncIndicator"' in html
-    assert 'id="paidSearchPanel"' in html
-    assert 'id="appleAdsContent"' in html
-    assert "loadAppleAds" in script
-    assert "/api/apple-ads/sync" in script
-    assert "appleAdsKeywordRow" in script
-    assert "appleAdsShowPaused" in script
-    assert "Show paused" in script
-    assert "paidCountryFilterButton" in script
-    assert "paidSortHeader" in script
-    assert "/api/keywords/check-rank" in script
-    assert "checkPaidKeywordRank" in script
-    assert ".paid-country-filter" in styles
-    assert ".paid-aso-rank" in styles
-    assert 'id="topAppMenu"' in html
-    assert 'id="competitorMatrix"' in html
-    assert "addPendingTopAppCompetitor" in script
-    assert "competitorMatrixAction" in script
-    assert "/api/competitors/refresh" in script
-    assert ".competitor-matrix-table" in styles
-    assert "openMetricHistory" in script
-    assert "data-metric-series" in script
-    assert "renderListingCoverage" in script
-    assert "/api/listing-metadata" in script
-    assert "coverageGoalOption" in script
-    assert "Untracked keyword matches" in script
-    assert "coverage-match-sections" in styles
-    assert "Word-by-word analysis" not in script
-    assert "coverage-principle" in styles
-    assert "coverage-goal-list" in script
-    assert ".coverage-setup-fields" in styles
-    assert "coverage-word-table" not in styles
-    assert "coverage-terms" not in script
-    assert "coverage-terms" not in styles
-    assert 'id="coverageLiveNameMirror"' in script
-    assert "coverage-token-shell" in styles
-    assert "coverage-highlight-list" not in styles
-    assert "keywordCoverageConfigured" in script
-    assert "healthAuditButton" in script
-    assert ".health-layout.audit-locked" in styles
-    assert ".score-ring.score-ring-setup" in styles
-    assert 'id="nicheWorkspace"' in html
-    assert 'id="nicheCheckNowButton"' in html
-    assert 'id="nicheAgentForm"' in html
-    assert "nicheCheckSummary" in script
-    assert "No rated matches" in script
-    assert "volumeTone" in script
-    assert "difficultyTone" in script
-    assert ".niche-cell-inner.mixed" in styles
-    assert ".niche-cell-inner { min-height: 21px;" in styles
-    assert "Live methodology" not in html
-    assert 'aria-labelledby="appModalTitle"' in html
-    assert 'aria-labelledby="keywordModalTitle"' in html
-    assert 'aria-labelledby="confirmModalTitle"' in html
-    assert 'aria-labelledby="deleteAppModalTitle"' in html
-    assert "refreshCustomSelects" in script
-    assert "enhanceSelect" in script
-    assert "renderCustomSelectMenu" in script
-    assert "handleCustomSelectMenuKeydown" in script
-    assert "custom-select-menu" in script
-    assert "custom-select-trigger" in styles
-    assert ".custom-select-menu" in styles
-    assert "dialog.modal" in styles
-    assert "modal-surface-in" in styles
-    assert "custom-select-native" in styles
-    assert "loadAudit" in script
-    assert "startAudit" in script
-    assert "renderAuditRun" in script
-    assert "renderAuditKeywords" in script
-    assert "renderAuditFindingTerm" in script
-    assert "renderAuditDiscovery" in script
-    assert "discoverMoreAuditKeywords" in script
-    assert "All countries" not in script
-    assert "audit-score-gauge" in styles
-    assert ".audit-keyword-list" in styles
-    assert ".audit-finding-metrics" in styles
-    assert ".audit-discovery-card" in styles
-    assert "Specialist local audit" in script
-    assert "discovery → language → Apple → editor" in script
-    assert "Evidence-grounded insights" in script
-    assert "Reviewing language" in script
-    assert "Editing findings" in script
-    assert ".audit-finding-title" in styles
-    assert ".audit-status-pill.localizing" in styles
-    assert ".audit-status-pill.synthesizing" in styles
-    assert "renderLocalizationStudio" in script
-    assert "generateSelectedLocalizationDrafts" in script
-    assert "confirmLocalizationPush" in script
-    assert "/api/localization-studio/generate" in script
-    assert "/api/localization-studio/update" in script
-    assert "/api/localization-studio/approve" in script
-    assert "/api/localization-studio/push" in script
-    assert "/api/app-store-connect/test" in script
-    assert "localizationConnectionReady" in script
-    assert "Private key path" in script
-    assert "Text metadata only" in script
-    assert ".localization-studio-card" in styles
-    assert ".localization-source-grid" in styles
-    assert ".localization-target" in styles
-    assert ".localization-draft-card" in styles
-    assert ".localization-fields" in styles
-    assert ".localization-connect" in styles
-    assert ".competitor-remove,\n.sidebar-foot .setup-link {\n  border: 0;" in styles
-    assert ">Growth toolkit<" not in html
-    assert 'id="appCount"' not in html
-    assert "Search visibility" not in html
-    assert "Apple public data" not in script
-    assert "@media (max-width: 800px)" in styles
+STATIC = files("local_aso_tracker.web").joinpath("static")
 
 
-def test_dashboard_does_not_accept_or_render_apple_ads_secret_material() -> None:
-    static = files("local_aso_tracker.web").joinpath("static")
-    for filename in ("index.html", "app.js", "onboarding.js", "styles.css"):
-        content = static.joinpath(filename).read_text(encoding="utf-8").lower()
-        for retired in (
-            "private.jwt.token",
-            "signed es256 jwt",
-            "client_secret=",
-            "apple-ads.toml",
-        ):
-            assert retired not in content, f"{retired} remains in {filename}"
-    html = static.joinpath("index.html").read_text(encoding="utf-8")
-    assert html.count("data-setup-step=") == 3
-    assert html.count("data-setup-progress=") == 3
-    assert "No account or API keys needed" not in html
-    assert 'id="onboardingAgentChoices"' in html
+def _assets(suffix: str) -> dict[str, str]:
+    folder = STATIC.joinpath("assets")
+    return {
+        item.name: item.read_text(encoding="utf-8")
+        for item in folder.iterdir()
+        if item.name.endswith(suffix)
+    }
 
 
-def test_dashboard_has_no_aso_principle_audit() -> None:
-    static = files("local_aso_tracker.web").joinpath("static")
-    for filename in ("index.html", "app.js", "styles.css"):
-        content = static.joinpath(filename).read_text(encoding="utf-8").lower()
-        for retired in ("aso principle audit", "metadataaudit", "listing-audit", "listingaudit"):
-            assert retired not in content, f"{retired} remains in {filename}"
+def test_built_dashboard_is_packaged() -> None:
+    html = STATIC.joinpath("index.html").read_text(encoding="utf-8")
+    assert "<title>Local ASO</title>" in html
+    assert 'id="root"' in html
+    scripts = re.findall(r"<script\b[^>]*>", html)
+    assert scripts, "the build must reference its entry script"
+    for name in re.findall(r'(?:src|href)="\./assets/([^"]+)"', html):
+        assert STATIC.joinpath("assets", name).is_file(), name
+    assert _assets(".js")
+    assert _assets(".css")
+
+
+def test_build_respects_the_dashboard_csp() -> None:
+    html = STATIC.joinpath("index.html").read_text(encoding="utf-8")
+    # script-src 'self': every script is an external, same-origin module.
+    for tag, body in re.findall(r"(<script\b[^>]*>)(.*?)</script>", html, flags=re.S):
+        assert 'src="./' in tag, tag
+        assert body.strip() == "", "inline scripts are blocked by the CSP"
+    # Only relative asset URLs; no CDN scripts, styles, or fonts.
+    for url in re.findall(r'(?:src|href)="([^"]+)"', html):
+        assert url.startswith("./"), url
+    for name, css in _assets(".css").items():
+        external = re.findall(r"url\(\s*['\"]?(https?:)?//", css)
+        assert not external, f"{name} loads an external resource"
+        assert "@import url(" not in css, name
+    for name, script in _assets(".js").items():
+        assert "fonts.googleapis.com" not in script, name
+        assert "cdn.jsdelivr" not in script and "unpkg.com" not in script, name
+
+
+def test_build_contains_no_secret_material_or_retired_features() -> None:
+    bundle = "\n".join(
+        [
+            STATIC.joinpath("index.html").read_text(encoding="utf-8"),
+            *_assets(".js").values(),
+            *_assets(".css").values(),
+        ]
+    ).lower()
+    for secret in ("private.jwt.token", "signed es256 jwt", "client_secret=", "apple-ads.toml"):
+        assert secret not in bundle
+    for retired in ("aso principle audit", "listing-audit", "listingaudit"):
+        assert retired not in bundle
+
+
+def test_build_carries_the_product_display_rules() -> None:
+    script = "\n".join(_assets(".js").values())
+    # Missing ranks, estimate labels, and Apple's popularity floor (see frontend/src/lib/format.ts).
+    assert "not Apple search volume" in script
+    assert "too few searches for Apple to rank" in script
+    assert "Competitor names people search" in script
+    for endpoint in ("/api/bootstrap", "/api/audits", "/api/keywords", "/api/sync-status"):
+        assert endpoint in script

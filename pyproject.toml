@@ -51,6 +51,8 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+# Alembic revision scripts ship inside the package but are not application code.
+exclude = ["src/local_aso_tracker/migrations/"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

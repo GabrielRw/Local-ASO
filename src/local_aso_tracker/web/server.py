@@ -6,6 +6,7 @@ import json
 import logging
 import mimetypes
 import re
+import signal
 import threading
 import time
 import webbrowser
@@ -252,7 +253,13 @@ class DashboardService:
                     {"code": "iphone", "name": "iPhone"},
                     {"code": "ipad", "name": "iPad"},
                 ],
-                "agentProviders": [asdict(item) for item in provider_status()],
+                "agentProviders": [
+                    asdict(item)
+                    for item in provider_status(
+                        codex_path=settings.agent_codex_path,
+                        claude_path=settings.agent_claude_path,
+                    )
+                ],
                 "defaultAgentProvider": settings.agent_provider,
                 "selectedAppId": selected_id,
                 "selectedCountry": storefront,
@@ -845,7 +852,13 @@ class DashboardService:
         settings = load_settings()
         with session_scope() as session:
             payload = niche_board_payload(session, board_id)
-        payload["providers"] = [asdict(provider) for provider in provider_status()]
+        payload["providers"] = [
+            asdict(provider)
+            for provider in provider_status(
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+            )
+        ]
         payload["defaultProvider"] = settings.agent_provider
         return payload
 
@@ -1475,6 +1488,13 @@ class LocalDashboardServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
+READY_PREFIX = "LOCAL_ASO_READY"
+
+
+class _ShutdownRequested(Exception):
+    """Raised from the SIGTERM handler to leave ``serve_forever`` cleanly."""
+
+
 def serve_dashboard(
     *,
     host: str = "127.0.0.1",
@@ -1483,11 +1503,17 @@ def serve_dashboard(
     mcp_port: int = 8766,
     open_browser: bool = True,
 ) -> None:
-    """Serve the dashboard until interrupted; bind to loopback by default."""
+    """Serve the dashboard until interrupted; bind to loopback by default.
+
+    ``port=0`` binds a free port. Once the socket is listening, one machine-readable
+    line ``LOCAL_ASO_READY http://host:port/`` is printed; the desktop app waits for it.
+    SIGTERM (sent by the desktop app on quit) stops the server like Ctrl+C.
+    """
 
     from local_aso_tracker.mcp_server import MCPRuntime
 
     server = LocalDashboardServer((host, port), DashboardHandler)
+    bound_port = int(server.server_address[1])
     sync_worker = AutomaticSyncWorker()
     DashboardHandler.sync_worker = sync_worker
     sync_worker.start()
@@ -1498,16 +1524,28 @@ def serve_dashboard(
         else:
             print(f"Warning: MCP endpoint unavailable on port {mcp_port}.", flush=True)
             mcp_runtime = None
-    url = f"http://{host}:{port}"
+    url = f"http://{host}:{bound_port}"
     print(f"Local ASO dashboard: {url}", flush=True)
     print("Press Ctrl+C to stop.", flush=True)
+    print(f"{READY_PREFIX} {url}/", flush=True)
     if open_browser:
         webbrowser.open(url)
+
+    previous_handler: Any = None
+    in_main_thread = threading.current_thread() is threading.main_thread()
+    if in_main_thread:
+
+        def _on_sigterm(_signum: int, _frame: object) -> None:
+            raise _ShutdownRequested
+
+        previous_handler = signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         server.serve_forever(poll_interval=0.25)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, _ShutdownRequested):
         print("\nDashboard stopped.", flush=True)
     finally:
+        if in_main_thread:
+            signal.signal(signal.SIGTERM, previous_handler or signal.SIG_DFL)
         DashboardHandler.service.audit_worker.stop()
         sync_worker.stop()
         DashboardHandler.sync_worker = None

@@ -896,3 +896,36 @@ def test_competitor_brand_searches_become_apple_ads_keywords(
     assert paid[0]["brandOwner"] == "Co\u2013Star Personalized Astrology"
     assert paid[0]["popularity"] == 56
     assert ("costar", "us", "iphone") in fake_client.calls
+
+
+def test_audit_payload_lists_the_latest_run_per_country(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ASO_DATA_DIR", str(tmp_path))
+    run_migrations()
+    with session_scope() as session:
+        app, _ = add_app(session, "Learn Astrology", 6771773264)
+        add_storefront(session, "us", "United States")
+        add_storefront(session, "fr", "France")
+        ids = {}
+        for country in ("us", "fr", "us"):
+            run = create_audit_run(
+                session,
+                app_id=app.id,
+                scope="country",
+                country_code=country,
+                device="iphone",
+                provider="codex",
+                country_codes=[country],
+            )
+            session.flush()
+            ids.setdefault(country, []).append(run.id)
+        payload = audit_dashboard_payload(
+            session, app_id=app.id, country_code="us", device="iphone"
+        )
+
+    latest = {item["country"]: item for item in payload["latestByCountry"]}  # type: ignore[union-attr]
+    assert set(latest) == {"us", "fr"}
+    assert latest["us"]["id"] == ids["us"][-1]  # type: ignore[index]
+    assert latest["fr"]["countryName"] == "France"  # type: ignore[index]

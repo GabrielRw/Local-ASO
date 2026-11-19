@@ -26,6 +26,8 @@ def create_db_engine(path: Path | None = None) -> Engine:
         cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
+        # The dashboard, CLI, and background sync can write at the same time.
+        cursor.execute("PRAGMA busy_timeout=10000")
         cursor.close()
 
     return engine

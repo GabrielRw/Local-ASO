@@ -7,15 +7,18 @@ import logging
 import mimetypes
 import re
 import signal
+import subprocess
+import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -31,6 +34,8 @@ from local_aso_tracker.apple.app_store_connect import (
 from local_aso_tracker.apple.client import AppleClientError
 from local_aso_tracker.apple.listing import AppleListing, lookup_listing
 from local_aso_tracker.config import (
+    Settings,
+    exports_dir,
     load_settings,
     update_settings,
     validate_country_code,
@@ -45,6 +50,7 @@ from local_aso_tracker.models import (
     Storefront,
     TrackingTarget,
 )
+from local_aso_tracker.reports.fastlane import export_fastlane_metadata
 from local_aso_tracker.repositories.audits import (
     active_audit_run,
     audit_dashboard_payload,
@@ -74,11 +80,17 @@ from local_aso_tracker.repositories.niches import (
     remove_niche_country,
 )
 from local_aso_tracker.repositories.onboarding import complete_onboarding, onboarding_completed
+from local_aso_tracker.services import background_sync
 from local_aso_tracker.services.agent import (
+    CLI_PROVIDER_IDS,
     AgentError,
+    generate_keyword_translations,
     generate_keywords,
+    ollama_models,
     provider_status,
     test_provider,
+    validate_ollama_url,
+    validate_provider_id,
 )
 from local_aso_tracker.services.analytics import (
     RankingRow,
@@ -117,9 +129,10 @@ from local_aso_tracker.services.listing_localization import (
     save_main_storefront,
     update_localization_fields,
 )
-from local_aso_tracker.services.localization import localization_payload
+from local_aso_tracker.services.localization import Translator, localization_payload
 from local_aso_tracker.services.localization_targets import COUNTRY_PRIMARY_LANGUAGE
-from local_aso_tracker.services.niche_research import refresh_niche_metrics
+from local_aso_tracker.services.niche_research import localize_board_terms, refresh_niche_metrics
+from local_aso_tracker.services.storefronts import MARKETS, require_market
 
 logger = logging.getLogger(__name__)
 STATIC_ROOT = files("local_aso_tracker.web").joinpath("static")
@@ -131,6 +144,22 @@ def _iso_utc(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.astimezone(UTC).isoformat()
+
+
+def _agent_paths_payload(settings: Settings) -> dict[str, object]:
+    """Saved CLI paths per provider plus the local Ollama connection, for the agent sheet."""
+
+    return {
+        **{
+            provider_id: str(getattr(settings, f"agent_{provider_id}_path"))
+            for provider_id in CLI_PROVIDER_IDS
+        },
+        "ollama": {
+            "url": settings.ollama_url,
+            "model": settings.ollama_model,
+            "models": ollama_models(),
+        },
+    }
 
 
 def _popularity_key(row: RankingRow) -> tuple[str, str]:
@@ -252,6 +281,10 @@ class DashboardService:
                 "devices": [
                     {"code": "iphone", "name": "iPhone"},
                     {"code": "ipad", "name": "iPad"},
+                ],
+                "markets": [
+                    {"code": item.code, "name": item.name, "language": item.language}
+                    for item in sorted(MARKETS.values(), key=lambda value: value.name)
                 ],
                 "agentProviders": [
                     asdict(item)
@@ -379,45 +412,57 @@ class DashboardService:
         return {"completed": True, "shouldOpen": False}
 
     def save_agent_provider(self, body: dict[str, Any]) -> dict[str, object]:
-        provider = str(body.get("provider", "auto")).strip().lower()
-        if provider not in {"auto", "codex", "claude"}:
-            raise ValueError("agent provider must be auto, codex, or claude")
-        current = load_settings()
-        paths: dict[str, str] = {}
-        for key, setting in (
-            ("codexPath", "agent_codex_path"),
-            ("claudePath", "agent_claude_path"),
-        ):
-            if key in body:
-                value = " ".join(str(body[key]).split())
-                if len(value) > 500:
-                    raise ValueError(f"{key} must be 500 characters or fewer")
-                paths[setting] = value
+        provider = validate_provider_id(str(body.get("provider", "auto")))
+        changes: dict[str, object] = {"agent_provider": provider}
+        paths = self._agent_paths_from_body(body)
+        for provider_id, value in paths.items():
+            changes[f"agent_{provider_id}_path"] = value
+        if "ollamaUrl" in body:
+            changes["ollama_url"] = validate_ollama_url(str(body["ollamaUrl"]))
+        if "ollamaModel" in body:
+            model = " ".join(str(body["ollamaModel"]).split())
+            if len(model) > 200:
+                raise ValueError("ollamaModel must be 200 characters or fewer")
+            changes["ollama_model"] = model
         if provider != "auto":
-            provider_kwargs = {}
-            if current.agent_codex_path or "agent_codex_path" in paths:
-                provider_kwargs["codex_path"] = paths.get(
-                    "agent_codex_path", current.agent_codex_path
+            current = load_settings()
+            merged = {
+                provider_id: str(
+                    changes.get(
+                        f"agent_{provider_id}_path",
+                        getattr(current, f"agent_{provider_id}_path"),
+                    )
                 )
-            if current.agent_claude_path or "agent_claude_path" in paths:
-                provider_kwargs["claude_path"] = paths.get(
-                    "agent_claude_path", current.agent_claude_path
-                )
-            available = {
-                item.id: item.available
-                for item in (
-                    provider_status(**provider_kwargs) if provider_kwargs else provider_status()
-                )
+                for provider_id in CLI_PROVIDER_IDS
             }
-            if not available.get(provider, False):
-                raise ValueError(f"{provider} CLI is not installed or not available on PATH")
-        settings = update_settings(agent_provider=provider, **paths)
-        result: dict[str, object] = {"provider": settings.agent_provider}
-        if "agent_codex_path" in paths:
-            result["codexPath"] = settings.agent_codex_path
-        if "agent_claude_path" in paths:
-            result["claudePath"] = settings.agent_claude_path
-        return result
+            test_provider(
+                provider,
+                paths=merged,
+                ollama_url=str(changes.get("ollama_url", current.ollama_url)),
+                ollama_model=str(changes.get("ollama_model", current.ollama_model)),
+            )
+        settings = update_settings(**changes)
+        return {"provider": settings.agent_provider, "agentPaths": _agent_paths_payload(settings)}
+
+    @staticmethod
+    def _agent_paths_from_body(body: dict[str, Any]) -> dict[str, str]:
+        """Accept `paths: {provider: path}` and the legacy `codexPath`/`claudePath` keys."""
+
+        raw: dict[str, object] = {}
+        if isinstance(body.get("paths"), dict):
+            raw.update(body["paths"])
+        for legacy, provider_id in (("codexPath", "codex"), ("claudePath", "claude")):
+            if legacy in body:
+                raw[provider_id] = body[legacy]
+        paths: dict[str, str] = {}
+        for provider_id, value in raw.items():
+            if provider_id not in CLI_PROVIDER_IDS:
+                raise ValueError(f"unknown CLI provider: {provider_id}")
+            text = " ".join(str(value).split())
+            if len(text) > 500:
+                raise ValueError(f"{provider_id} path must be 500 characters or fewer")
+            paths[str(provider_id)] = text
+        return paths
 
     def audit(
         self,
@@ -457,10 +502,7 @@ class DashboardService:
             selected_country,
             "English",
         )
-        payload["agentPaths"] = {
-            "codex": settings.agent_codex_path,
-            "claude": settings.agent_claude_path,
-        }
+        payload["agentPaths"] = _agent_paths_payload(settings)
         return payload
 
     def start_audit(self, body: dict[str, Any]) -> dict[str, object]:
@@ -471,9 +513,9 @@ class DashboardService:
         device = validate_device(str(body.get("device", "iphone")))
         country = validate_country_code(str(body.get("country", "us")))
         settings = load_settings()
-        requested_provider = str(body.get("provider") or settings.agent_provider).strip().lower()
-        if requested_provider not in {"auto", "codex", "claude"}:
-            raise ValueError("agent provider must be auto, codex, or claude")
+        requested_provider = validate_provider_id(
+            str(body.get("provider") or settings.agent_provider)
+        )
         providers = {
             item.id: item.available
             for item in provider_status(
@@ -482,9 +524,12 @@ class DashboardService:
             )
         }
         if requested_provider != "auto" and not providers.get(requested_provider, False):
-            raise ValueError(f"{requested_provider} CLI is not installed or not available on PATH")
+            raise ValueError(f"{requested_provider} is not installed or not available on this Mac")
         if requested_provider == "auto" and not any(providers.values()):
-            raise ValueError("Install or configure Codex or Claude before running an audit")
+            raise ValueError(
+                "Install the Claude, Codex, Gemini, or OpenCode CLI, or run Ollama, before "
+                "running an audit"
+            )
         with session_scope() as session:
             app = session.scalar(select(App).where(App.apple_app_id == app_id))
             if app is None:
@@ -554,8 +599,9 @@ class DashboardService:
         settings = load_settings()
         return test_provider(
             str(body.get("provider") or settings.agent_provider),
-            codex_path=str(body.get("codexPath", settings.agent_codex_path)),
-            claude_path=str(body.get("claudePath", settings.agent_claude_path)),
+            paths=self._agent_paths_from_body(body),
+            ollama_url=str(body["ollamaUrl"]) if "ollamaUrl" in body else None,
+            ollama_model=str(body["ollamaModel"]) if "ollamaModel" in body else None,
             timeout=15.0,
         )
 
@@ -846,7 +892,30 @@ class DashboardService:
         unknown = sorted(set(countries) - known)
         if unknown:
             raise ValueError(f"unknown country: {unknown[0]}")
-        return localization_payload(keywords, countries)
+        translator = self._keyword_translator(body.get("provider"))
+        return localization_payload(keywords, countries, translator=translator)
+
+    @staticmethod
+    def _keyword_translator(provider: object = None) -> Translator:
+        """Translate keywords with the configured local AI provider (curated phrases win)."""
+
+        settings = load_settings()
+        chosen = str(provider or settings.agent_provider)
+
+        def translate(
+            phrases: Sequence[str], languages: Sequence[str]
+        ) -> dict[str, dict[str, str]]:
+            _provider, translations = generate_keyword_translations(
+                keywords=phrases,
+                languages=languages,
+                provider=chosen,
+                codex_path=settings.agent_codex_path,
+                claude_path=settings.agent_claude_path,
+                timeout=settings.agent_timeout,
+            )
+            return translations
+
+        return translate
 
     def niche(self, board_id: int | None = None) -> dict[str, object]:
         settings = load_settings()
@@ -889,6 +958,8 @@ class DashboardService:
             brief=brief,
             count=10,
             provider=provider,
+            codex_path=settings.agent_codex_path,
+            claude_path=settings.agent_claude_path,
             timeout=settings.agent_timeout,
         )
         with session_scope() as session:
@@ -901,12 +972,14 @@ class DashboardService:
                 countries=countries,
             )
             board_id = board.id
+        warnings = localize_board_terms(board_id, translator=self._keyword_translator(provider))
         check = refresh_niche_metrics(board_id, settings)
         payload = self.niche(board_id)
         payload["generation"] = {
             "provider": generated.provider,
             "keywords": generated.keywords,
             "check": asdict(check),
+            "localizationWarnings": warnings,
         }
         return payload
 
@@ -929,6 +1002,8 @@ class DashboardService:
             existing_keywords=existing,
             count=count,
             provider=str(body.get("provider") or settings.agent_provider),
+            codex_path=settings.agent_codex_path,
+            claude_path=settings.agent_claude_path,
             timeout=settings.agent_timeout,
         )
         with session_scope() as session:
@@ -937,9 +1012,12 @@ class DashboardService:
                 raise ValueError(f"unknown niche board: {board_id}")
             added = add_niche_keywords(session, board, generated.keywords)
             added_ids = {item.id for item in added}
-        check = (
-            refresh_niche_metrics(board_id, settings, keyword_ids=added_ids) if added_ids else None
-        )
+        check = None
+        if added_ids:
+            localize_board_terms(
+                board_id, translator=self._keyword_translator(body.get("provider"))
+            )
+            check = refresh_niche_metrics(board_id, settings, keyword_ids=added_ids)
         payload = self.niche(board_id)
         payload["agent"] = {
             "provider": generated.provider,
@@ -965,6 +1043,10 @@ class DashboardService:
             if board is None:
                 raise ValueError(f"unknown niche board: {board_id}")
             added = add_niche_country(session, board, country)
+        if added:
+            localize_board_terms(
+                board_id, translator=self._keyword_translator(), countries={country}
+            )
         check = refresh_niche_metrics(board_id, settings, countries={country}) if added else None
         payload = self.niche(board_id)
         payload["countryChange"] = {
@@ -989,9 +1071,10 @@ class DashboardService:
     def check_niche_board(self, body: dict[str, Any]) -> dict[str, object]:
         board_id = int(body["boardId"])
         settings = load_settings()
+        warnings = localize_board_terms(board_id, translator=self._keyword_translator())
         result = refresh_niche_metrics(board_id, settings)
         payload = self.niche(board_id)
-        payload["check"] = asdict(result)
+        payload["check"] = {**asdict(result), "localizationWarnings": warnings}
         return payload
 
     def save_listing_coverage(self, body: dict[str, Any]) -> dict[str, object]:
@@ -1077,6 +1160,56 @@ class DashboardService:
             "strategy": asdict(strategy),
             "health": health,
         }
+
+    def export_fastlane(self, body: dict[str, Any]) -> dict[str, object]:
+        """Write a fastlane metadata folder under the local exports directory only."""
+
+        app_id = int(body["appId"])
+        with session_scope() as session:
+            app = session.scalar(select(App).where(App.apple_app_id == app_id))
+            if app is None:
+                raise ValueError(f"unknown app ID: {app_id}")
+            stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            folder = exports_dir() / "fastlane" / str(app.bundle_id or app.apple_app_id) / stamp
+            result = export_fastlane_metadata(
+                session, app, folder, include_unapproved=bool(body.get("includeUnapproved"))
+            )
+        return {
+            "path": str(result.metadata_dir),
+            "locales": result.locales,
+            "skipped": result.skipped,
+        }
+
+    def reveal_export(self, body: dict[str, Any]) -> dict[str, object]:
+        """Show an exported folder in Finder; only paths inside the exports folder."""
+
+        root = exports_dir().resolve()
+        target = Path(str(body.get("path", ""))).expanduser().resolve()
+        if not target.is_relative_to(root) or not target.exists():
+            raise ValueError("only exported folders can be revealed")
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", str(target)], check=False, timeout=10)
+        return {"revealed": str(target)}
+
+    def set_background_sync(self, body: dict[str, Any]) -> dict[str, object]:
+        """Turn the daily background rank check (macOS LaunchAgent) on or off."""
+
+        return background_sync.enable() if bool(body.get("enabled")) else background_sync.disable()
+
+    def add_country(self, body: dict[str, Any]) -> dict[str, object]:
+        """Add (or reactivate) an App Store storefront from the registry."""
+
+        found = require_market(str(body.get("code", "")))
+        with session_scope() as session:
+            item, created = add_storefront(session, found.code)
+            return {
+                "created": created,
+                "country": {
+                    "code": item.country_code,
+                    "name": item.display_name,
+                    "active": item.active,
+                },
+            }
 
     def add_app_from_apple(self, body: dict[str, Any]) -> dict[str, object]:
         apple_id = int(body["appleId"])
@@ -1340,6 +1473,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/background-sync":
+                self._json(background_sync.status())
+                return
             if parsed.path == "/api/sync-status":
                 worker = self.sync_worker
                 self._json(
@@ -1377,6 +1513,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        rejection = self._cross_origin_rejection()
+        if rejection:
+            self._error(HTTPStatus.FORBIDDEN, rejection)
+            return
         try:
             body = self._read_json()
             actions = {
@@ -1385,6 +1525,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/keywords/localize": self.service.localize_keywords,
                 "/api/listing-metadata": self.service.save_listing_coverage,
                 "/api/apps": self.service.add_app_from_apple,
+                "/api/countries": self.service.add_country,
+                "/api/background-sync": self.service.set_background_sync,
+                "/api/exports/fastlane": self.service.export_fastlane,
+                "/api/reveal": self.service.reveal_export,
                 "/api/apps/deactivate": self.service.deactivate_app,
                 "/api/check": self.service.check,
                 "/api/targets/deactivate": self.service.deactivate_target,
@@ -1456,6 +1600,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._headers(content_type, len(content))
         self.end_headers()
         self.wfile.write(content)
+
+    def _cross_origin_rejection(self) -> str | None:
+        """Refuse actions not sent by this dashboard's own page.
+
+        Actions write files, install a LaunchAgent, and spend Apple quota, so another web
+        page open in the same browser must not be able to trigger them. Requires a loopback
+        Host (blocks DNS rebinding), a JSON body (a cross-site form can't send one without a
+        CORS preflight, which this server never grants), and, when the browser sends an
+        Origin, that it matches the Host. Non-browser clients send no Origin.
+        """
+
+        host = (self.headers.get("Host") or "").strip().lower()
+        hostname = host.rsplit(":", 1)[0].strip("[]") if host else ""
+        if hostname not in {"127.0.0.1", "localhost", "::1"}:
+            return "actions are only accepted on this computer's local address"
+        content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            return "actions must be sent as JSON"
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            expected = {f"http://{host}", f"https://{host}"}
+            if origin.strip().lower() not in expected:
+                return "actions from other web pages are not allowed"
+        return None
 
     def _json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
         content = json.dumps(value, ensure_ascii=False).encode()

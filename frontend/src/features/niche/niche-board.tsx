@@ -54,6 +54,28 @@ export function ProviderSelect({
   );
 }
 
+/** Shows which phrase was searched in this market (its own language), or that it wasn't translated. */
+function TermCaption({ metric }: { metric: NicheMetric | undefined }) {
+  if (metric?.term) {
+    return (
+      <span className="text-muted-foreground mt-1 block max-w-36 truncate text-[11px]" title={`Searched as “${metric.term}”`}>
+        “{metric.term}”
+      </span>
+    );
+  }
+  if (metric?.untranslated) {
+    return (
+      <span
+        className="mt-1 block text-[11px] text-amber-600 dark:text-amber-400"
+        title="No local AI translated this phrase yet, so this market was searched as written. Check again once an AI provider is set up."
+      >
+        Not translated
+      </span>
+    );
+  }
+  return null;
+}
+
 function MetricCell({ metric, pending }: { metric: NicheMetric | undefined; pending: boolean }) {
   const view = nicheCellView(metric);
   if (view.kind !== "rated") {
@@ -73,6 +95,7 @@ function MetricCell({ metric, pending }: { metric: NicheMetric | undefined; pend
           </TooltipTrigger>
           <TooltipContent className="max-w-64 text-pretty">{view.title}</TooltipContent>
         </Tooltip>
+        <TermCaption metric={metric} />
       </TableCell>
     );
   }
@@ -100,6 +123,7 @@ function MetricCell({ metric, pending }: { metric: NicheMetric | undefined; pend
         </TooltipTrigger>
         <TooltipContent className="max-w-64 text-pretty">{view.title}</TooltipContent>
       </Tooltip>
+      <TermCaption metric={metric} />
     </TableCell>
   );
 }

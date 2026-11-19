@@ -108,6 +108,29 @@ class NicheKeyword(Base):
     metrics: Mapped[list[NicheMetric]] = relationship(
         back_populates="keyword", cascade="all, delete-orphan"
     )
+    terms: Mapped[list[NicheKeywordTerm]] = relationship(
+        back_populates="keyword", cascade="all, delete-orphan"
+    )
+
+
+class NicheKeywordTerm(Base):
+    """The phrase actually searched for a board keyword in one market's language."""
+
+    __tablename__ = "niche_keyword_terms"
+    __table_args__ = (
+        UniqueConstraint("niche_keyword_id", "country_code", name="uq_niche_keyword_term"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    niche_keyword_id: Mapped[int] = mapped_column(
+        ForeignKey("niche_keywords.id", ondelete="CASCADE"), index=True
+    )
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    term: Mapped[str] = mapped_column(String(255))
+    language: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    keyword: Mapped[NicheKeyword] = relationship(back_populates="terms")
 
 
 class NicheMarket(Base):

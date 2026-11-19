@@ -1,7 +1,8 @@
 # Local ASO Tracker contributor instructions
 
 - Target Python 3.12 or newer and manage the environment with `uv`.
-- Keep the application local-only. Persist application data in SQLite and make external runtime requests only to Apple's public iTunes Search API or the optional read-only Apple Ads Platform API using local OAuth credentials.
+- Keep the application local-only. Persist application data in SQLite and make external runtime requests only to Apple's public iTunes Search API, the optional read-only Apple Ads Platform API, and the optional App Store Connect API using local credentials. The only other HTTP target allowed is the user's own Ollama on a loopback address. Local AI CLIs (Claude, Codex, Gemini, OpenCode) are run as subprocesses; the app itself never calls an AI service.
+- Every dashboard POST must pass the origin check (loopback Host, JSON body, matching Origin when sent). Server actions that write files only write inside `config.exports_dir()`.
 - Keep CLI, configuration, persistence, Apple HTTP code, services, and report generation in separate modules.
 - Use UTC for persisted timestamps and local time for user-facing CLI timestamps.
 - Preserve ranking uncertainty: a missing app has `rank = NULL`, `found = false`, and is displayed as `>limit`.

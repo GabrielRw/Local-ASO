@@ -1,15 +1,63 @@
-"""Curated English, French, and Spanish keyword localization for App Store markets."""
+"""Keyword localization for every App Store market.
+
+A curated English/French/Spanish dictionary (the app's own vocabulary) always wins.
+Everything else is translated into each market's language by the configured local AI
+provider. Without one, the phrase is skipped with a warning; it is never silently
+searched in English in a non-English market.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 
+from local_aso_tracker.services.storefronts import market
+
 LANGUAGE_NAMES = {"en": "English", "fr": "French", "es": "Spanish"}
+# ISO 639-1 codes for the languages in the storefront registry.
+LANGUAGE_CODES = {
+    "Arabic": "ar",
+    "Catalan": "ca",
+    "Chinese": "zh",
+    "Croatian": "hr",
+    "Czech": "cs",
+    "Danish": "da",
+    "Dutch": "nl",
+    "English": "en",
+    "Finnish": "fi",
+    "French": "fr",
+    "German": "de",
+    "Greek": "el",
+    "Hebrew": "he",
+    "Hindi": "hi",
+    "Hungarian": "hu",
+    "Indonesian": "id",
+    "Italian": "it",
+    "Japanese": "ja",
+    "Korean": "ko",
+    "Malay": "ms",
+    "Norwegian": "no",
+    "Polish": "pl",
+    "Portuguese": "pt",
+    "Romanian": "ro",
+    "Russian": "ru",
+    "Slovak": "sk",
+    "Spanish": "es",
+    "Swedish": "sv",
+    "Thai": "th",
+    "Turkish": "tr",
+    "Ukrainian": "uk",
+    "Vietnamese": "vi",
+}
+NO_CURATED = "No curated translation; skipped for this language."
+NO_TRANSLATOR = "No local AI provider is available to translate it; skipped for this language."
+# (keywords, language names) -> {language: {keyword: localized phrase}}
+Translator = Callable[[Sequence[str], Sequence[str]], dict[str, dict[str, str]]]
 COUNTRY_LANGUAGES = {
     "ar": ("es",),
     "au": ("en",),
     "bo": ("es",),
-    "bz": ("es",),
+    "bz": ("en",),
     "ca": ("en", "fr"),
     "cl": ("es",),
     "co": ("es",),
@@ -332,56 +380,112 @@ class LocalizedGroup:
     keywords: list[str]
 
 
+def curated_phrase(keyword: str, language: str) -> str | None:
+    """The hand-curated phrase for a keyword in a language, if the dictionary has one."""
+
+    canonical = ALIASES.get(" ".join(keyword.casefold().split()))
+    code = LANGUAGE_CODES.get(language, "")
+    if canonical is not None and code in TRANSLATIONS[canonical]:
+        return TRANSLATIONS[canonical][code]
+    return None
+
+
+def market_languages(country: str) -> tuple[str, ...]:
+    """Languages searched in a storefront: curated pairs first, else its registry language."""
+
+    curated = COUNTRY_LANGUAGES.get(country)
+    if curated:
+        return tuple(LANGUAGE_NAMES[code] for code in curated)
+    found = market(country)
+    return (found.language if found else "English",)
+
+
 def localize_keywords(
-    keywords: list[str], countries: list[str]
+    keywords: list[str],
+    countries: list[str],
+    *,
+    translator: Translator | None = None,
 ) -> tuple[list[LocalizedGroup], list[dict[str, str]]]:
-    """Return localized groups and explicit warnings for uncurated phrases."""
+    """Group keywords per market language; curated first, then the AI translator."""
+
+    languages: dict[str, list[str]] = {}
+    for country in countries:
+        for language in market_languages(country):
+            languages.setdefault(language, []).append(country)
+    ordered = sorted(
+        languages,
+        key=lambda name: (
+            list(LANGUAGE_NAMES.values()).index(name) if name in LANGUAGE_NAMES.values() else 99,
+            name,
+        ),
+    )
+
+    # Curated lookups first; collect what still needs a translation.
+    plan: dict[str, list[tuple[str, str | None]]] = {}
+    pending: dict[str, list[str]] = {}
+    for language in ordered:
+        code = LANGUAGE_CODES.get(language, "")
+        rows: list[tuple[str, str | None]] = []
+        for keyword in keywords:
+            canonical = ALIASES.get(" ".join(keyword.casefold().split()))
+            if canonical is not None and code in TRANSLATIONS[canonical]:
+                rows.append((keyword, TRANSLATIONS[canonical][code]))
+            elif language == "English":
+                rows.append((keyword, keyword))
+            else:
+                rows.append((keyword, None))
+                pending.setdefault(language, []).append(keyword)
+        plan[language] = rows
+
+    translated: dict[str, dict[str, str]] = {}
+    translator_error: str | None = None
+    if pending and translator is not None:
+        needed = sorted({keyword for items in pending.values() for keyword in items})
+        try:
+            translated = translator(needed, list(pending))
+        except Exception as exc:
+            translator_error = str(exc)[:200]
 
     groups: list[LocalizedGroup] = []
     warnings: list[dict[str, str]] = []
-    for language_code, language in LANGUAGE_NAMES.items():
-        language_countries = [
-            country
-            for country in countries
-            if language_code in COUNTRY_LANGUAGES.get(country, ("en",))
-        ]
-        if not language_countries:
-            continue
-        translated: list[str] = []
+    for language in ordered:
+        result: list[str] = []
         seen: set[str] = set()
-        for keyword in keywords:
-            canonical = ALIASES.get(" ".join(keyword.casefold().split()))
-            if canonical is None:
-                if language_code != "en":
-                    warnings.append(
-                        {
-                            "keyword": keyword,
-                            "language": language,
-                            "reason": "No curated translation; skipped for this language.",
-                        }
-                    )
-                    continue
-                candidate = keyword
-            else:
-                candidate = TRANSLATIONS[canonical][language_code]
+        for keyword, candidate in plan[language]:
+            if candidate is None:
+                candidate = translated.get(language, {}).get(keyword)
+            if not candidate:
+                if translator is None:
+                    reason = NO_CURATED if language in LANGUAGE_NAMES.values() else NO_TRANSLATOR
+                elif translator_error:
+                    reason = f"Translation failed: {translator_error}"
+                else:
+                    reason = "The AI provider returned no translation; skipped for this language."
+                warnings.append({"keyword": keyword, "language": language, "reason": reason})
+                continue
             normalized = " ".join(candidate.casefold().split())
             if normalized not in seen:
                 seen.add(normalized)
-                translated.append(candidate)
-        if translated:
+                result.append(" ".join(candidate.split()))
+        if result:
             groups.append(
                 LocalizedGroup(
-                    language_code=language_code,
+                    language_code=LANGUAGE_CODES.get(language, language[:2].lower()),
                     language=language,
-                    countries=language_countries,
-                    keywords=translated,
+                    countries=languages[language],
+                    keywords=result,
                 )
             )
     return groups, warnings
 
 
-def localization_payload(keywords: list[str], countries: list[str]) -> dict[str, object]:
-    groups, warnings = localize_keywords(keywords, countries)
+def localization_payload(
+    keywords: list[str],
+    countries: list[str],
+    *,
+    translator: Translator | None = None,
+) -> dict[str, object]:
+    groups, warnings = localize_keywords(keywords, countries, translator=translator)
     return {
         "groups": [asdict(group) for group in groups],
         "warnings": warnings,

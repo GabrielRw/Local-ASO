@@ -18,3 +18,17 @@ def session() -> Iterator[Session]:
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as value:
         yield value
+
+
+@pytest.fixture(autouse=True)
+def no_local_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never probe a real Ollama server; provider tests opt in by patching."""
+
+    from local_aso_tracker.services import agent
+
+    monkeypatch.setattr(agent, "_OLLAMA_CACHE", {})
+    monkeypatch.setattr(
+        agent,
+        "_ollama_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(agent.AgentError("ollama not running")),
+    )

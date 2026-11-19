@@ -10,14 +10,15 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 
 - Local dashboard with app switching, country flags, and separate iPhone/iPad rankings.
 - Batch keyword entry using commas or new lines, with an automatic first check.
-- Curated English, French, and Spanish keyword localization with a preview before adding targets.
+- Research in 69 App Store markets, each in its own language: add storefronts from the dashboard, and keywords are translated per market by your local AI (a curated English/French/Spanish dictionary always wins), with a preview before adding targets.
 - Current ranks, rank changes, rank-history charts, and rank-based opportunity groups.
 - Overall daily average-rank trend for all tracked keywords in the selected storefront and device.
-- Non-blocking full-catalog synchronization at dashboard startup and once every 24 hours while it remains open.
+- Non-blocking full-catalog synchronization at dashboard startup and once every 24 hours while it remains open, plus optional daily background checks on macOS even when the app is closed.
 - “Losing to” leaderboard counting Top 5 competitors that appear ahead across the current keyword set.
 - Competitor keyword matrix with apps as columns, tracked keywords as rows, and refreshed rank positions.
 - Ratings-based audience and top-10 competition estimates, stored separately with each successful check.
-- App-wide Niche research boards powered by a locally installed Codex or Claude CLI, with unlimited country columns and on-demand refreshes.
+- Local AI of your choice: the Claude, Codex, Gemini, or OpenCode CLI, or a model in Ollama on your Mac.
+- App-wide Niche research boards, with unlimited country columns searched in each market's language and on-demand refreshes.
 - App Audit tab that analyzes one selected storefront at a time with Codex/Claude, verifies recommended phrases against Apple, and shows deterministic findings, scores, and keyword opportunities.
 - Localized listing studio that generates reviewed Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New drafts with Codex/Claude, audits them against the selected ASO strategy, and pushes approved text metadata through App Store Connect.
 - Optional read-only Apple Ads reporting for current targeting keywords, bids, spend, taps, installs, and Apple keyword suggestions.
@@ -25,7 +26,7 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Public listing-health review, screenshot previews when available, and competitor comparison.
 - Three-step listing strategy audit with distribution goal, brand term, highlighted duplication checks, and title-order verification.
 - CLI commands for managing apps, keywords, storefronts, and tracking targets.
-- CSV/JSON exports and a self-contained HTML report that can be opened offline.
+- CSV/JSON exports, a fastlane `deliver` metadata export, and a self-contained HTML report that can be opened offline.
 - SQLite persistence, idempotent setup, and optional scheduling through your operating system.
 
 ## Contents
@@ -105,7 +106,7 @@ uv run aso dashboard --no-open --no-mcp
 
 The sidebar holds the app switcher (add or remove apps from its menu), the app views, Niche research, and Settings (setup guide, local AI agent, light/dark/system appearance). The header of every app view has the storefront and device pickers; iPhone and iPad rankings are tracked separately.
 
-1. **Audit** (start here). Run a 0–100 audit for the selected storefront: discovery by your local Claude or Codex CLI, a native-language review, Apple rank checks, and an editor pass that keeps only evidence-backed findings. Recommended keywords are sorted by opportunity and can be tracked in one click; searches for competitor app names are listed separately as Apple Ads keywords. **All markets** shows the latest audit per storefront. **AI agent** sets or tests the CLI paths.
+1. **Audit** (start here). Run a 0–100 audit for the selected storefront: discovery by your local AI (Claude, Codex, Gemini, OpenCode, or Ollama), a native-language review, Apple rank checks, and an editor pass that keeps only evidence-backed findings. Recommended keywords are sorted by opportunity and can be tracked in one click; searches for competitor app names are listed separately as Apple Ads keywords. **All markets** shows the latest audit per storefront. **AI agent** sets CLI paths, the Ollama model, and tests the connection.
 2. **Keywords.** Top 10 / Top 50 / average-rank cards with 7- and 30-day trends (click for history), the sortable rankings table (popularity, difficulty, Top 5 apps, change, signal), **Run check** for stale targets, **Add keywords** (several storefronts and devices at once, with an optional localized preview), a per-keyword history chart, the overall rank trend, and “Losing to”. Click a Top 5 icon to add that app to Competitors.
 3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, screenshots Apple returns, and the localization studio that drafts, reviews, and pushes localized metadata to an editable App Store Connect version.
 4. **Competitors.** The keyword-by-app rank matrix with **Refresh rankings**, plus a side-by-side public listing comparison.
@@ -128,7 +129,7 @@ When the dashboard starts, a daemon worker begins refreshing active app/keyword/
 4. **Check now** refreshes every keyword/storefront pair. Cell values are the same transparent 0–100 ratings-based volume and difficulty estimates used elsewhere in the dashboard. A successful search with no public rating signals is shown as **No rated matches**, while an Apple request failure is shown as **Check failed**.
 5. Use the right-hand agent input to request more phrases, such as `Add 5 beginner keywords`. New phrases are deduplicated, appended to the board, and checked across every board storefront automatically.
 
-The discovery step invokes the locally installed `codex` or `claude` executable in non-interactive mode. Only the niche brief, existing keyword phrases, and your instruction are passed to that CLI. Authentication, account limits, and model usage belong to the local CLI you choose; the dashboard stores only the returned keyword phrases and the provider name in SQLite. If neither CLI is available, the provider is shown as unavailable and no remote fallback is used.
+The discovery step invokes your local AI provider: the `claude`, `codex`, `gemini`, or `opencode` CLI in non-interactive mode, or Ollama on a loopback address. Only the niche brief, existing keyword phrases, and your instruction are passed to that CLI. Authentication, account limits, and model usage belong to the local CLI you choose; the dashboard stores only the returned keyword phrases and the provider name in SQLite. If no provider is available, it is shown as unavailable and no remote fallback is used. Each market's keywords are translated into its language before Apple is searched; a market whose phrase couldn't be translated is searched as written and marked "Not translated".
 
 The optional agent settings in `config.toml` are:
 
@@ -143,7 +144,7 @@ Codex and Claude are invoked as local processes, but the selected CLI may send p
 
 ## App audits
 
-The **Audit** tab evaluates one selected storefront at a time for the current app. It runs a specialist pipeline through the locally installed Codex or Claude CLI, then checks every proposed phrase against Apple’s public App Store search results. The model does not supply ranks or scores.
+The **Audit** tab evaluates one selected storefront at a time for the current app. It runs a specialist pipeline through your local AI provider, then checks every proposed phrase against Apple’s public App Store search results. The model does not supply ranks or scores.
 
 The pipeline is deliberately split into focused passes:
 
@@ -368,7 +369,7 @@ $env:ASO_DATA_DIR = Join-Path $PWD ".local-aso-data"
 uv run aso dashboard
 ```
 
-`config.toml` contains no secret key material. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `agent_provider`, `agent_codex_path`, `agent_claude_path`, `agent_timeout`, `app_store_connect_issuer_id`, `app_store_connect_key_id`, `app_store_connect_key_path`, `apple_ads_account_id`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window. `apple_ads_account_id = 0` means that no ad account has been selected.
+`config.toml` contains no secret key material. Available settings are `request_timeout`, `retry_count`, `request_delay`, `concurrency`, `result_limit`, `agent_provider` (`auto`, `claude`, `codex`, `gemini`, `opencode`, or `ollama`), `agent_codex_path`, `agent_claude_path`, `agent_gemini_path`, `agent_opencode_path`, `ollama_url` (loopback only), `ollama_model`, `agent_timeout`, `app_store_connect_issuer_id`, `app_store_connect_key_id`, `app_store_connect_key_path`, `apple_ads_account_id`, `default_countries`, and `default_app_id`. Defaults are a 15-second timeout, three retries, at least one second between requests, concurrency 2, and a 200-result window. `apple_ads_account_id = 0` means that no ad account has been selected.
 
 Example configuration:
 
@@ -526,6 +527,10 @@ Competitor comparison requires adding another app to the local catalog and compa
 The ranking table shows estimated audience and difficulty beside Apple's measured rank. Green volume values indicate the stronger end of the local audience model; red difficulty values indicate the strongest incumbent rating signals. Each successful check also stores the first five returned app names, Apple artwork URLs, average ratings, and rating counts. The icons appear as an overlapping stack with app-name tooltips, while the "Losing to" cards aggregate the most recent storefront-specific average rating and rating count for each competitor. The compact responsive row keeps rank, volume, difficulty, Top 5, and the existing opportunity signal visible without a horizontal scroll. These local estimates never replace Apple's returned rank and are never presented as measured search demand.
 
 
+## fastlane export
+
+**Optimize → Export to fastlane** (or `aso export fastlane --app-id <id> --output <folder>`) writes a fastlane `deliver` metadata folder: `metadata/<locale>/name.txt`, `subtitle.txt`, `keywords.txt`, `description.txt`, `promotional_text.txt`, `release_notes.txt`, and the support, marketing, and privacy URLs. It includes the main listing and every approved or pushed localized draft (`--include-unapproved` adds the rest). Only non-empty fields are written, so `deliver` leaves anything else untouched; nothing is uploaded. The dashboard writes inside `~/.local-aso-tracker/exports/` and can show the folder in Finder.
+
 ## Exports and report
 
 ```bash
@@ -542,19 +547,14 @@ Exports include local ranking data and should be treated as private unless you d
 
 ## Local scheduling
 
-The tracker never installs a scheduler. Use the non-interactive idempotent command:
+**On macOS**, open **Settings → Background checks** and turn on **Check ranks daily**. Local ASO installs a LaunchAgent (`~/Library/LaunchAgents/app.localaso.sync.plist`) that runs `aso sync` at login and every 24 hours, even when the app is closed, using the same data folder. It checks every active keyword without a successful check in the last 24 hours and refreshes Apple Ads popularity. Runs need the Mac to be awake; a missed run happens on wake. Turning the toggle off unloads and deletes the agent. Its log is `background-sync.log` in the logs folder.
+
+A sync lock in the data folder means only one process checks ranks at a time (the open app, a background run, or `aso check`); a second one skips instead of repeating Apple searches.
+
+To schedule manually instead, run the same command from cron or Task Scheduler:
 
 ```bash
-uv run aso --quiet check --only-missing-today
-```
-
-### macOS launchd
-
-Copy `examples/launchd/com.local-aso-tracker.check.plist`, replace the absolute executable path, then opt in manually:
-
-```bash
-cp examples/launchd/com.local-aso-tracker.check.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.local-aso-tracker.check.plist
+uv run aso --quiet sync
 ```
 
 ### Linux cron
@@ -667,7 +667,7 @@ Before committing frontend changes, run `pnpm --dir frontend typecheck`, `lint`,
 
 ## Desktop app (macOS)
 
-The Mac app wraps the same dashboard. On launch it starts the bundled server on a free local port, waits for it, and opens the dashboard in its own window; quitting stops the server cleanly. It uses the same data folder as the CLI (`~/.local-aso-tracker`), so your apps and history appear in both. External links (App Store pages) open in your default browser. Local AI audits use the Claude or Codex CLI installed on your Mac; the app also looks in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` because apps launched from the Dock don't inherit your shell `PATH`. Set an explicit path under **Audit → AI agent** if needed.
+The Mac app wraps the same dashboard. On launch it starts the bundled server on a free local port, waits for it, and opens the dashboard in its own window; quitting stops the server cleanly. It uses the same data folder as the CLI (`~/.local-aso-tracker`), so your apps and history appear in both. External links (App Store pages) open in your default browser. Local AI features use the Claude, Codex, Gemini, or OpenCode CLI installed on your Mac, or Ollama; the app also looks in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` because apps launched from the Dock don't inherit your shell `PATH`. Set an explicit path under **Audit → AI agent** if needed.
 
 Build it (needs uv, Node + pnpm, Rust, and Xcode command line tools):
 

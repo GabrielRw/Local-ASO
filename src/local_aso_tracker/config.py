@@ -7,12 +7,13 @@ import os
 import re
 import tomllib
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DEFAULT_DATA_DIR = Path("~/.local-aso-tracker").expanduser()
 SUPPORTED_DEVICES = {"iphone": "software", "ipad": "iPadSoftware"}
+# Mirrors services.agent.PROVIDERS (kept here so settings load without importing services).
+AGENT_PROVIDER_IDS = ("auto", "claude", "codex", "gemini", "opencode", "ollama")
 
 
 class Settings(BaseModel):
@@ -25,9 +26,13 @@ class Settings(BaseModel):
     request_delay: float = Field(default=1.0, ge=0)
     concurrency: int = Field(default=2, ge=1, le=10)
     result_limit: int = Field(default=200, ge=1, le=200)
-    agent_provider: Literal["auto", "codex", "claude"] = "auto"
+    agent_provider: str = "auto"
     agent_codex_path: str = ""
     agent_claude_path: str = ""
+    agent_gemini_path: str = ""
+    agent_opencode_path: str = ""
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = ""
     agent_timeout: float = Field(default=120.0, ge=10, le=600)
     app_store_connect_issuer_id: str = ""
     app_store_connect_key_id: str = ""
@@ -35,6 +40,14 @@ class Settings(BaseModel):
     apple_ads_account_id: int = Field(default=0, ge=0)
     default_countries: list[str] = Field(default_factory=lambda: ["us", "fr", "gb", "ca", "au"])
     default_app_id: int = 6771773264
+
+    @field_validator("agent_provider")
+    @classmethod
+    def validate_agent_provider(cls, value: str) -> str:
+        provider = value.strip().lower()
+        if provider not in AGENT_PROVIDER_IDS:
+            raise ValueError(f"agent_provider must be one of: {', '.join(AGENT_PROVIDER_IDS)}")
+        return provider
 
     @field_validator("default_countries")
     @classmethod
@@ -75,6 +88,12 @@ def database_path() -> Path:
     return data_dir() / "aso.db"
 
 
+def exports_dir() -> Path:
+    """Where the dashboard writes exports (fastlane metadata); nothing outside it."""
+
+    return data_dir() / "exports"
+
+
 def log_path() -> Path:
     return data_dir() / "logs" / "aso.log"
 
@@ -112,6 +131,10 @@ result_limit = 200
 agent_provider = "auto"
 agent_codex_path = ""
 agent_claude_path = ""
+agent_gemini_path = ""
+agent_opencode_path = ""
+ollama_url = "http://127.0.0.1:11434"
+ollama_model = ""
 agent_timeout = 120.0
 app_store_connect_issuer_id = ""
 app_store_connect_key_id = ""

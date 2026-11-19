@@ -14,6 +14,10 @@ export interface NicheMetric {
   status: "pending" | "success" | "error" | string;
   checkedAt: string | null;
   error: string | null;
+  /** Phrase searched in this market's language; null when searched as written. */
+  term?: string | null;
+  /** True for a non-English market whose phrase couldn't be translated yet. */
+  untranslated?: boolean;
 }
 
 export interface NicheKeyword {

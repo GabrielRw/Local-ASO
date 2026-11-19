@@ -179,6 +179,7 @@ export function AppSidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <DropdownMenuItem onSelect={() => dialogs.open("setup")}>Setup guide &amp; AI agent…</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => dialogs.open("background-sync")}>Background checks…</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-muted-foreground text-xs">Appearance</DropdownMenuLabel>
                 {themeOptions.map((option) => (

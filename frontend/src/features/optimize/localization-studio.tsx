@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiPost } from "@/lib/api";
 import { countryFlag, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { FastlaneExportButton } from "./fastlane-export";
 import { CharCount } from "./highlight-input";
 import { replaceDraft, useLocalizationStudio, usePatchStudio } from "./queries";
 import { connectionReady, selectableTargets } from "./studio";
@@ -151,7 +152,8 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
       <CardHeader>
         <CardDescription>Listing localization</CardDescription>
         <CardTitle className="text-base">Generate localized App Store listings</CardTitle>
-        <CardAction>
+        <CardAction className="flex flex-wrap items-center justify-end gap-2">
+          <FastlaneExportButton appId={appId} />
           <Badge variant={ready ? "secondary" : "outline"}>
             {ready ? <ShieldCheck /> : <PlugZap />}
             {ready ? "App Store Connect ready" : "App Store Connect not ready"}

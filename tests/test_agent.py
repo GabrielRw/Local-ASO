@@ -8,11 +8,11 @@ from local_aso_tracker.services import agent
 def test_agent_keywords_are_normalized_deduplicated_and_limited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(agent, "_select_provider", lambda _provider: "codex")
+    monkeypatch.setattr(agent, "_select_provider", lambda _provider, **_kwargs: "codex")
     monkeypatch.setattr(
         agent,
         "_run_codex",
-        lambda _prompt, _timeout: {
+        lambda _prompt, _timeout, **_kwargs: {
             "keywords": [
                 "  keto   tracker ",
                 "Keto Tracker",
@@ -35,8 +35,8 @@ def test_agent_keywords_are_normalized_deduplicated_and_limited(
 
 
 def test_agent_requires_a_keyword_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(agent, "_select_provider", lambda _provider: "codex")
-    monkeypatch.setattr(agent, "_run_codex", lambda _prompt, _timeout: {"items": []})
+    monkeypatch.setattr(agent, "_select_provider", lambda _provider, **_kwargs: "codex")
+    monkeypatch.setattr(agent, "_run_codex", lambda _prompt, _timeout, **_kwargs: {"items": []})
 
     with pytest.raises(agent.AgentError):
         agent.generate_keywords(brief="keto tracking", provider="auto")

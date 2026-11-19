@@ -55,15 +55,9 @@ export interface ListingCoverageResult {
 
 // --- Localization studio ----------------------------------------------------
 
-export interface AppStoreConnectStatus {
-  configured: boolean;
-  ready: boolean;
-  issuerId: string;
-  keyId: string;
-  keyPath: string;
-  keyExists: boolean;
-  keyModeSafe: boolean;
-}
+import type { AppStoreConnectStatus } from "@/lib/types";
+
+export type { AppStoreConnectStatus };
 
 export interface LocalizationCountry {
   code: string;

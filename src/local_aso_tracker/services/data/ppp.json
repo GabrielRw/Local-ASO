@@ -1,0 +1,1184 @@
+{
+ "indicator": "Price level ratio: PA.NUS.PPP / PA.NUS.FCRF (US = 1)",
+ "source": "World Bank, World Development Indicators: PA.NUS.PPP (PPP conversion factor, GDP, LCU per international $) and PA.NUS.FCRF (official exchange rate, LCU per US$, period average). Euro members without their own exchange rate use the euro area rate.",
+ "sourceUrl": "https://data.worldbank.org/indicator/PA.NUS.PPP",
+ "retrieved": "2026-11-19",
+ "countries": {
+  "AD": {
+   "iso3": "AND",
+   "name": "Andorra",
+   "ratio": 0.6543,
+   "year": 2024
+  },
+  "AE": {
+   "iso3": "ARE",
+   "name": "United Arab Emirates",
+   "ratio": 0.6336,
+   "year": 2024
+  },
+  "AF": {
+   "iso3": "AFG",
+   "name": "Afghanistan",
+   "ratio": 0.1996,
+   "year": 2020
+  },
+  "AG": {
+   "iso3": "ATG",
+   "name": "Antigua and Barbuda",
+   "ratio": 0.6914,
+   "year": 2024
+  },
+  "AL": {
+   "iso3": "ALB",
+   "name": "Albania",
+   "ratio": 0.426,
+   "year": 2024
+  },
+  "AM": {
+   "iso3": "ARM",
+   "name": "Armenia",
+   "ratio": 0.3743,
+   "year": 2024
+  },
+  "AO": {
+   "iso3": "AGO",
+   "name": "Angola",
+   "ratio": 0.3168,
+   "year": 2024
+  },
+  "AR": {
+   "iso3": "ARG",
+   "name": "Argentina",
+   "ratio": 0.4584,
+   "year": 2024
+  },
+  "AT": {
+   "iso3": "AUT",
+   "name": "Austria",
+   "ratio": 0.769,
+   "year": 2024
+  },
+  "AU": {
+   "iso3": "AUS",
+   "name": "Australia",
+   "ratio": 0.9018,
+   "year": 2024
+  },
+  "AW": {
+   "iso3": "ABW",
+   "name": "Aruba",
+   "ratio": 0.7463,
+   "year": 2024
+  },
+  "AZ": {
+   "iso3": "AZE",
+   "name": "Azerbaijan",
+   "ratio": 0.2901,
+   "year": 2024
+  },
+  "BA": {
+   "iso3": "BIH",
+   "name": "Bosnia and Herzegovina",
+   "ratio": 0.3737,
+   "year": 2024
+  },
+  "BB": {
+   "iso3": "BRB",
+   "name": "Barbados",
+   "ratio": 1.0961,
+   "year": 2024
+  },
+  "BD": {
+   "iso3": "BGD",
+   "name": "Bangladesh",
+   "ratio": 0.2581,
+   "year": 2024
+  },
+  "BE": {
+   "iso3": "BEL",
+   "name": "Belgium",
+   "ratio": 0.7623,
+   "year": 2024
+  },
+  "BF": {
+   "iso3": "BFA",
+   "name": "Burkina Faso",
+   "ratio": 0.3387,
+   "year": 2024
+  },
+  "BG": {
+   "iso3": "BGR",
+   "name": "Bulgaria",
+   "ratio": 0.2144,
+   "year": 2024
+  },
+  "BH": {
+   "iso3": "BHR",
+   "name": "Bahrain",
+   "ratio": 0.442,
+   "year": 2024
+  },
+  "BI": {
+   "iso3": "BDI",
+   "name": "Burundi",
+   "ratio": 0.3013,
+   "year": 2024
+  },
+  "BJ": {
+   "iso3": "BEN",
+   "name": "Benin",
+   "ratio": 0.3345,
+   "year": 2024
+  },
+  "BM": {
+   "iso3": "BMU",
+   "name": "Bermuda",
+   "ratio": 1.1981,
+   "year": 2024
+  },
+  "BN": {
+   "iso3": "BRN",
+   "name": "Brunei Darussalam",
+   "ratio": 0.3683,
+   "year": 2024
+  },
+  "BO": {
+   "iso3": "BOL",
+   "name": "Bolivia",
+   "ratio": 0.3428,
+   "year": 2024
+  },
+  "BR": {
+   "iso3": "BRA",
+   "name": "Brazil",
+   "ratio": 0.4609,
+   "year": 2024
+  },
+  "BS": {
+   "iso3": "BHS",
+   "name": "Bahamas, The",
+   "ratio": 0.9563,
+   "year": 2024
+  },
+  "BT": {
+   "iso3": "BTN",
+   "name": "Bhutan",
+   "ratio": 0.238,
+   "year": 2024
+  },
+  "BW": {
+   "iso3": "BWA",
+   "name": "Botswana",
+   "ratio": 0.3711,
+   "year": 2024
+  },
+  "BY": {
+   "iso3": "BLR",
+   "name": "Belarus",
+   "ratio": 0.2595,
+   "year": 2024
+  },
+  "BZ": {
+   "iso3": "BLZ",
+   "name": "Belize",
+   "ratio": 0.5346,
+   "year": 2024
+  },
+  "CA": {
+   "iso3": "CAN",
+   "name": "Canada",
+   "ratio": 0.8402,
+   "year": 2024
+  },
+  "CD": {
+   "iso3": "COD",
+   "name": "Congo, Dem. Rep.",
+   "ratio": 0.3981,
+   "year": 2023
+  },
+  "CF": {
+   "iso3": "CAF",
+   "name": "Central African Republic",
+   "ratio": 0.4081,
+   "year": 2024
+  },
+  "CG": {
+   "iso3": "COG",
+   "name": "Congo, Rep.",
+   "ratio": 0.3544,
+   "year": 2024
+  },
+  "CH": {
+   "iso3": "CHE",
+   "name": "Switzerland",
+   "ratio": 1.105,
+   "year": 2024
+  },
+  "CI": {
+   "iso3": "CIV",
+   "name": "Cote d'Ivoire",
+   "ratio": 0.3552,
+   "year": 2024
+  },
+  "CL": {
+   "iso3": "CHL",
+   "name": "Chile",
+   "ratio": 0.4618,
+   "year": 2024
+  },
+  "CM": {
+   "iso3": "CMR",
+   "name": "Cameroon",
+   "ratio": 0.327,
+   "year": 2024
+  },
+  "CN": {
+   "iso3": "CHN",
+   "name": "China",
+   "ratio": 0.4898,
+   "year": 2024
+  },
+  "CO": {
+   "iso3": "COL",
+   "name": "Colombia",
+   "ratio": 0.3543,
+   "year": 2024
+  },
+  "CR": {
+   "iso3": "CRI",
+   "name": "Costa Rica",
+   "ratio": 0.5975,
+   "year": 2024
+  },
+  "CV": {
+   "iso3": "CPV",
+   "name": "Cabo Verde",
+   "ratio": 0.4623,
+   "year": 2024
+  },
+  "CW": {
+   "iso3": "CUW",
+   "name": "Curacao",
+   "ratio": 0.6974,
+   "year": 2024
+  },
+  "CY": {
+   "iso3": "CYP",
+   "name": "Cyprus",
+   "ratio": 0.6138,
+   "year": 2024
+  },
+  "CZ": {
+   "iso3": "CZE",
+   "name": "Czechia",
+   "ratio": 0.5523,
+   "year": 2024
+  },
+  "DE": {
+   "iso3": "DEU",
+   "name": "Germany",
+   "ratio": 0.7586,
+   "year": 2024
+  },
+  "DJ": {
+   "iso3": "DJI",
+   "name": "Djibouti",
+   "ratio": 0.4542,
+   "year": 2024
+  },
+  "DK": {
+   "iso3": "DNK",
+   "name": "Denmark",
+   "ratio": 0.8775,
+   "year": 2024
+  },
+  "DM": {
+   "iso3": "DMA",
+   "name": "Dominica",
+   "ratio": 0.4878,
+   "year": 2024
+  },
+  "DO": {
+   "iso3": "DOM",
+   "name": "Dominican Republic",
+   "ratio": 0.3943,
+   "year": 2024
+  },
+  "DZ": {
+   "iso3": "DZA",
+   "name": "Algeria",
+   "ratio": 0.326,
+   "year": 2024
+  },
+  "EC": {
+   "iso3": "ECU",
+   "name": "Ecuador",
+   "ratio": 0.4307,
+   "year": 2024
+  },
+  "EE": {
+   "iso3": "EST",
+   "name": "Estonia",
+   "ratio": 0.6236,
+   "year": 2024
+  },
+  "EG": {
+   "iso3": "EGY",
+   "name": "Egypt, Arab Rep.",
+   "ratio": 0.1377,
+   "year": 2024
+  },
+  "ER": {
+   "iso3": "ERI",
+   "name": "Eritrea",
+   "ratio": 0.3276,
+   "year": 2021
+  },
+  "ES": {
+   "iso3": "ESP",
+   "name": "Spain",
+   "ratio": 0.6084,
+   "year": 2024
+  },
+  "ET": {
+   "iso3": "ETH",
+   "name": "Ethiopia",
+   "ratio": 0.3281,
+   "year": 2024
+  },
+  "FI": {
+   "iso3": "FIN",
+   "name": "Finland",
+   "ratio": 0.8161,
+   "year": 2024
+  },
+  "FJ": {
+   "iso3": "FJI",
+   "name": "Fiji",
+   "ratio": 0.4153,
+   "year": 2024
+  },
+  "FM": {
+   "iso3": "FSM",
+   "name": "Micronesia, Fed. Sts.",
+   "ratio": 0.9549,
+   "year": 2024
+  },
+  "FO": {
+   "iso3": "FRO",
+   "name": "Faroe Islands",
+   "ratio": 0.9036,
+   "year": 2024
+  },
+  "FR": {
+   "iso3": "FRA",
+   "name": "France",
+   "ratio": 0.7374,
+   "year": 2024
+  },
+  "GA": {
+   "iso3": "GAB",
+   "name": "Gabon",
+   "ratio": 0.3821,
+   "year": 2024
+  },
+  "GB": {
+   "iso3": "GBR",
+   "name": "United Kingdom",
+   "ratio": 0.8489,
+   "year": 2024
+  },
+  "GD": {
+   "iso3": "GRD",
+   "name": "Grenada",
+   "ratio": 0.5793,
+   "year": 2024
+  },
+  "GE": {
+   "iso3": "GEO",
+   "name": "Georgia",
+   "ratio": 0.3263,
+   "year": 2024
+  },
+  "GH": {
+   "iso3": "GHA",
+   "name": "Ghana",
+   "ratio": 0.3009,
+   "year": 2024
+  },
+  "GL": {
+   "iso3": "GRL",
+   "name": "Greenland",
+   "ratio": 0.7414,
+   "year": 2023
+  },
+  "GM": {
+   "iso3": "GMB",
+   "name": "Gambia, The",
+   "ratio": 0.2506,
+   "year": 2024
+  },
+  "GN": {
+   "iso3": "GIN",
+   "name": "Guinea",
+   "ratio": 0.3162,
+   "year": 2020
+  },
+  "GQ": {
+   "iso3": "GNQ",
+   "name": "Equatorial Guinea",
+   "ratio": 0.4102,
+   "year": 2024
+  },
+  "GR": {
+   "iso3": "GRC",
+   "name": "Greece",
+   "ratio": 0.5575,
+   "year": 2024
+  },
+  "GT": {
+   "iso3": "GTM",
+   "name": "Guatemala",
+   "ratio": 0.4274,
+   "year": 2024
+  },
+  "GW": {
+   "iso3": "GNB",
+   "name": "Guinea-Bissau",
+   "ratio": 0.3227,
+   "year": 2024
+  },
+  "GY": {
+   "iso3": "GUY",
+   "name": "Guyana",
+   "ratio": 0.3697,
+   "year": 2024
+  },
+  "HK": {
+   "iso3": "HKG",
+   "name": "Hong Kong SAR, China",
+   "ratio": 0.7204,
+   "year": 2024
+  },
+  "HN": {
+   "iso3": "HND",
+   "name": "Honduras",
+   "ratio": 0.4553,
+   "year": 2024
+  },
+  "HR": {
+   "iso3": "HRV",
+   "name": "Croatia",
+   "ratio": 0.4854,
+   "year": 2024
+  },
+  "HT": {
+   "iso3": "HTI",
+   "name": "Haiti",
+   "ratio": 0.652,
+   "year": 2024
+  },
+  "HU": {
+   "iso3": "HUN",
+   "name": "Hungary",
+   "ratio": 0.4801,
+   "year": 2024
+  },
+  "ID": {
+   "iso3": "IDN",
+   "name": "Indonesia",
+   "ratio": 0.299,
+   "year": 2024
+  },
+  "IE": {
+   "iso3": "IRL",
+   "name": "Ireland",
+   "ratio": 0.8019,
+   "year": 2024
+  },
+  "IL": {
+   "iso3": "ISR",
+   "name": "Israel",
+   "ratio": 0.9466,
+   "year": 2024
+  },
+  "IN": {
+   "iso3": "IND",
+   "name": "India",
+   "ratio": 0.2444,
+   "year": 2024
+  },
+  "IQ": {
+   "iso3": "IRQ",
+   "name": "Iraq",
+   "ratio": 0.4193,
+   "year": 2024
+  },
+  "IR": {
+   "iso3": "IRN",
+   "name": "Iran, Islamic Rep.",
+   "ratio": 2.2448,
+   "year": 2023
+  },
+  "IS": {
+   "iso3": "ISL",
+   "name": "Iceland",
+   "ratio": 1.0275,
+   "year": 2024
+  },
+  "IT": {
+   "iso3": "ITA",
+   "name": "Italy",
+   "ratio": 0.649,
+   "year": 2024
+  },
+  "JM": {
+   "iso3": "JAM",
+   "name": "Jamaica",
+   "ratio": 0.6007,
+   "year": 2024
+  },
+  "JO": {
+   "iso3": "JOR",
+   "name": "Jordan",
+   "ratio": 0.4258,
+   "year": 2024
+  },
+  "JP": {
+   "iso3": "JPN",
+   "name": "Japan",
+   "ratio": 0.6241,
+   "year": 2024
+  },
+  "KE": {
+   "iso3": "KEN",
+   "name": "Kenya",
+   "ratio": 0.3208,
+   "year": 2024
+  },
+  "KG": {
+   "iso3": "KGZ",
+   "name": "Kyrgyz Republic",
+   "ratio": 0.3064,
+   "year": 2024
+  },
+  "KH": {
+   "iso3": "KHM",
+   "name": "Cambodia",
+   "ratio": 0.3292,
+   "year": 2024
+  },
+  "KI": {
+   "iso3": "KIR",
+   "name": "Kiribati",
+   "ratio": 0.6843,
+   "year": 2024
+  },
+  "KM": {
+   "iso3": "COM",
+   "name": "Comoros",
+   "ratio": 0.459,
+   "year": 2024
+  },
+  "KN": {
+   "iso3": "KNA",
+   "name": "St. Kitts and Nevis",
+   "ratio": 0.6866,
+   "year": 2024
+  },
+  "KR": {
+   "iso3": "KOR",
+   "name": "Korea, Rep.",
+   "ratio": 0.5936,
+   "year": 2024
+  },
+  "KW": {
+   "iso3": "KWT",
+   "name": "Kuwait",
+   "ratio": 0.6185,
+   "year": 2024
+  },
+  "KY": {
+   "iso3": "CYM",
+   "name": "Cayman Islands",
+   "ratio": 1.1311,
+   "year": 2024
+  },
+  "KZ": {
+   "iso3": "KAZ",
+   "name": "Kazakhstan",
+   "ratio": 0.3457,
+   "year": 2024
+  },
+  "LA": {
+   "iso3": "LAO",
+   "name": "Lao PDR",
+   "ratio": 0.217,
+   "year": 2024
+  },
+  "LB": {
+   "iso3": "LBN",
+   "name": "Lebanon",
+   "ratio": 0.3754,
+   "year": 2024
+  },
+  "LC": {
+   "iso3": "LCA",
+   "name": "St. Lucia",
+   "ratio": 0.5155,
+   "year": 2024
+  },
+  "LK": {
+   "iso3": "LKA",
+   "name": "Sri Lanka",
+   "ratio": 0.2895,
+   "year": 2024
+  },
+  "LS": {
+   "iso3": "LSO",
+   "name": "Lesotho",
+   "ratio": 0.3332,
+   "year": 2024
+  },
+  "LT": {
+   "iso3": "LTU",
+   "name": "Lithuania",
+   "ratio": 0.5315,
+   "year": 2024
+  },
+  "LU": {
+   "iso3": "LUX",
+   "name": "Luxembourg",
+   "ratio": 0.8828,
+   "year": 2024
+  },
+  "LV": {
+   "iso3": "LVA",
+   "name": "Latvia",
+   "ratio": 0.5374,
+   "year": 2024
+  },
+  "LY": {
+   "iso3": "LBY",
+   "name": "Libya",
+   "ratio": 0.4586,
+   "year": 2024
+  },
+  "MA": {
+   "iso3": "MAR",
+   "name": "Morocco",
+   "ratio": 0.3982,
+   "year": 2024
+  },
+  "MD": {
+   "iso3": "MDA",
+   "name": "Moldova",
+   "ratio": 0.4061,
+   "year": 2024
+  },
+  "ME": {
+   "iso3": "MNE",
+   "name": "Montenegro",
+   "ratio": 0.3894,
+   "year": 2024
+  },
+  "MG": {
+   "iso3": "MDG",
+   "name": "Madagascar",
+   "ratio": 0.2914,
+   "year": 2024
+  },
+  "MH": {
+   "iso3": "MHL",
+   "name": "Marshall Islands",
+   "ratio": 0.9214,
+   "year": 2024
+  },
+  "MK": {
+   "iso3": "MKD",
+   "name": "North Macedonia",
+   "ratio": 0.3442,
+   "year": 2024
+  },
+  "ML": {
+   "iso3": "MLI",
+   "name": "Mali",
+   "ratio": 0.3291,
+   "year": 2024
+  },
+  "MM": {
+   "iso3": "MMR",
+   "name": "Myanmar",
+   "ratio": 0.2566,
+   "year": 2020
+  },
+  "MN": {
+   "iso3": "MNG",
+   "name": "Mongolia",
+   "ratio": 0.3521,
+   "year": 2024
+  },
+  "MO": {
+   "iso3": "MAC",
+   "name": "Macao SAR, China",
+   "ratio": 0.5663,
+   "year": 2024
+  },
+  "MR": {
+   "iso3": "MRT",
+   "name": "Mauritania",
+   "ratio": 0.3064,
+   "year": 2023
+  },
+  "MT": {
+   "iso3": "MLT",
+   "name": "Malta",
+   "ratio": 0.6283,
+   "year": 2024
+  },
+  "MU": {
+   "iso3": "MUS",
+   "name": "Mauritius",
+   "ratio": 0.3783,
+   "year": 2024
+  },
+  "MV": {
+   "iso3": "MDV",
+   "name": "Maldives",
+   "ratio": 0.5103,
+   "year": 2024
+  },
+  "MW": {
+   "iso3": "MWI",
+   "name": "Malawi",
+   "ratio": 0.3456,
+   "year": 2023
+  },
+  "MX": {
+   "iso3": "MEX",
+   "name": "Mexico",
+   "ratio": 0.5417,
+   "year": 2024
+  },
+  "MY": {
+   "iso3": "MYS",
+   "name": "Malaysia",
+   "ratio": 0.3058,
+   "year": 2024
+  },
+  "MZ": {
+   "iso3": "MOZ",
+   "name": "Mozambique",
+   "ratio": 0.3846,
+   "year": 2024
+  },
+  "NA": {
+   "iso3": "NAM",
+   "name": "Namibia",
+   "ratio": 0.3848,
+   "year": 2024
+  },
+  "NE": {
+   "iso3": "NER",
+   "name": "Niger",
+   "ratio": 0.3571,
+   "year": 2024
+  },
+  "NG": {
+   "iso3": "NGA",
+   "name": "Nigeria",
+   "ratio": 0.1191,
+   "year": 2024
+  },
+  "NI": {
+   "iso3": "NIC",
+   "name": "Nicaragua",
+   "ratio": 0.3266,
+   "year": 2024
+  },
+  "NL": {
+   "iso3": "NLD",
+   "name": "Netherlands",
+   "ratio": 0.7917,
+   "year": 2024
+  },
+  "NO": {
+   "iso3": "NOR",
+   "name": "Norway",
+   "ratio": 0.8508,
+   "year": 2024
+  },
+  "NP": {
+   "iso3": "NPL",
+   "name": "Nepal",
+   "ratio": 0.2528,
+   "year": 2024
+  },
+  "NR": {
+   "iso3": "NRU",
+   "name": "Naoero",
+   "ratio": 1.0388,
+   "year": 2024
+  },
+  "NZ": {
+   "iso3": "NZL",
+   "name": "New Zealand",
+   "ratio": 0.886,
+   "year": 2024
+  },
+  "OM": {
+   "iso3": "OMN",
+   "name": "Oman",
+   "ratio": 0.4853,
+   "year": 2024
+  },
+  "PA": {
+   "iso3": "PAN",
+   "name": "Panama",
+   "ratio": 0.4625,
+   "year": 2024
+  },
+  "PE": {
+   "iso3": "PER",
+   "name": "Peru",
+   "ratio": 0.477,
+   "year": 2024
+  },
+  "PG": {
+   "iso3": "PNG",
+   "name": "Papua New Guinea",
+   "ratio": 0.596,
+   "year": 2024
+  },
+  "PH": {
+   "iso3": "PHL",
+   "name": "Philippines",
+   "ratio": 0.3373,
+   "year": 2024
+  },
+  "PK": {
+   "iso3": "PAK",
+   "name": "Pakistan",
+   "ratio": 0.24,
+   "year": 2024
+  },
+  "PL": {
+   "iso3": "POL",
+   "name": "Poland",
+   "ratio": 0.4897,
+   "year": 2024
+  },
+  "PR": {
+   "iso3": "PRI",
+   "name": "Puerto Rico (US)",
+   "ratio": 0.7819,
+   "year": 2024
+  },
+  "PT": {
+   "iso3": "PRT",
+   "name": "Portugal",
+   "ratio": 0.5585,
+   "year": 2024
+  },
+  "PW": {
+   "iso3": "PLW",
+   "name": "Palau",
+   "ratio": 0.8628,
+   "year": 2024
+  },
+  "PY": {
+   "iso3": "PRY",
+   "name": "Paraguay",
+   "ratio": 0.3465,
+   "year": 2024
+  },
+  "QA": {
+   "iso3": "QAT",
+   "name": "Qatar",
+   "ratio": 0.5973,
+   "year": 2024
+  },
+  "RO": {
+   "iso3": "ROU",
+   "name": "Romania",
+   "ratio": 0.4092,
+   "year": 2024
+  },
+  "RS": {
+   "iso3": "SRB",
+   "name": "Serbia",
+   "ratio": 0.4166,
+   "year": 2024
+  },
+  "RU": {
+   "iso3": "RUS",
+   "name": "Russian Federation",
+   "ratio": 0.3137,
+   "year": 2024
+  },
+  "RW": {
+   "iso3": "RWA",
+   "name": "Rwanda",
+   "ratio": 0.28,
+   "year": 2024
+  },
+  "SA": {
+   "iso3": "SAU",
+   "name": "Saudi Arabia",
+   "ratio": 0.4939,
+   "year": 2024
+  },
+  "SB": {
+   "iso3": "SLB",
+   "name": "Solomon Islands",
+   "ratio": 0.7217,
+   "year": 2024
+  },
+  "SC": {
+   "iso3": "SYC",
+   "name": "Seychelles",
+   "ratio": 0.5508,
+   "year": 2024
+  },
+  "SD": {
+   "iso3": "SDN",
+   "name": "Sudan",
+   "ratio": 0.3174,
+   "year": 2022
+  },
+  "SE": {
+   "iso3": "SWE",
+   "name": "Sweden",
+   "ratio": 0.8034,
+   "year": 2024
+  },
+  "SG": {
+   "iso3": "SGP",
+   "name": "Singapore",
+   "ratio": 0.6196,
+   "year": 2024
+  },
+  "SI": {
+   "iso3": "SVN",
+   "name": "Slovenia",
+   "ratio": 0.5958,
+   "year": 2024
+  },
+  "SK": {
+   "iso3": "SVK",
+   "name": "Slovak Republic",
+   "ratio": 0.5433,
+   "year": 2024
+  },
+  "SL": {
+   "iso3": "SLE",
+   "name": "Sierra Leone",
+   "ratio": 0.225,
+   "year": 2023
+  },
+  "SM": {
+   "iso3": "SMR",
+   "name": "San Marino",
+   "ratio": 0.7598,
+   "year": 2023
+  },
+  "SN": {
+   "iso3": "SEN",
+   "name": "Senegal",
+   "ratio": 0.3411,
+   "year": 2024
+  },
+  "SR": {
+   "iso3": "SUR",
+   "name": "Suriname",
+   "ratio": 0.3189,
+   "year": 2024
+  },
+  "SS": {
+   "iso3": "SSD",
+   "name": "South Sudan",
+   "ratio": 0.4137,
+   "year": 2021
+  },
+  "ST": {
+   "iso3": "STP",
+   "name": "Sao Tome and Principe",
+   "ratio": 0.5624,
+   "year": 2024
+  },
+  "SV": {
+   "iso3": "SLV",
+   "name": "El Salvador",
+   "ratio": 0.4151,
+   "year": 2024
+  },
+  "SX": {
+   "iso3": "SXM",
+   "name": "Sint Maarten (Dutch part)",
+   "ratio": 0.7702,
+   "year": 2024
+  },
+  "SY": {
+   "iso3": "SYR",
+   "name": "Syrian Arab Republic",
+   "ratio": 0.3224,
+   "year": 2022
+  },
+  "SZ": {
+   "iso3": "SWZ",
+   "name": "Eswatini",
+   "ratio": 0.3307,
+   "year": 2024
+  },
+  "TC": {
+   "iso3": "TCA",
+   "name": "Turks and Caicos Islands",
+   "ratio": 0.9868,
+   "year": 2024
+  },
+  "TD": {
+   "iso3": "TCD",
+   "name": "Chad",
+   "ratio": 0.3544,
+   "year": 2024
+  },
+  "TG": {
+   "iso3": "TGO",
+   "name": "Togo",
+   "ratio": 0.3319,
+   "year": 2024
+  },
+  "TH": {
+   "iso3": "THA",
+   "name": "Thailand",
+   "ratio": 0.2965,
+   "year": 2024
+  },
+  "TJ": {
+   "iso3": "TJK",
+   "name": "Tajikistan",
+   "ratio": 0.2516,
+   "year": 2024
+  },
+  "TL": {
+   "iso3": "TLS",
+   "name": "Timor-Leste",
+   "ratio": 0.3007,
+   "year": 2024
+  },
+  "TN": {
+   "iso3": "TUN",
+   "name": "Tunisia",
+   "ratio": 0.288,
+   "year": 2024
+  },
+  "TO": {
+   "iso3": "TON",
+   "name": "Tonga",
+   "ratio": 0.7607,
+   "year": 2024
+  },
+  "TR": {
+   "iso3": "TUR",
+   "name": "Turkiye",
+   "ratio": 0.3522,
+   "year": 2024
+  },
+  "TT": {
+   "iso3": "TTO",
+   "name": "Trinidad and Tobago",
+   "ratio": 0.5149,
+   "year": 2024
+  },
+  "TV": {
+   "iso3": "TUV",
+   "name": "Tuvalu",
+   "ratio": 0.9242,
+   "year": 2024
+  },
+  "TZ": {
+   "iso3": "TZA",
+   "name": "Tanzania",
+   "ratio": 0.2821,
+   "year": 2024
+  },
+  "UA": {
+   "iso3": "UKR",
+   "name": "Ukraine",
+   "ratio": 0.2893,
+   "year": 2024
+  },
+  "UG": {
+   "iso3": "UGA",
+   "name": "Uganda",
+   "ratio": 0.3307,
+   "year": 2024
+  },
+  "US": {
+   "iso3": "USA",
+   "name": "United States",
+   "ratio": 1.0,
+   "year": 2024
+  },
+  "UY": {
+   "iso3": "URY",
+   "name": "Uruguay",
+   "ratio": 0.6642,
+   "year": 2024
+  },
+  "UZ": {
+   "iso3": "UZB",
+   "name": "Uzbekistan",
+   "ratio": 0.2666,
+   "year": 2024
+  },
+  "VC": {
+   "iso3": "VCT",
+   "name": "St. Vincent and the Grenadines",
+   "ratio": 0.5399,
+   "year": 2024
+  },
+  "VI": {
+   "iso3": "VIR",
+   "name": "Virgin Islands (U.S.)",
+   "ratio": 0.8902,
+   "year": 2022
+  },
+  "VN": {
+   "iso3": "VNM",
+   "name": "Viet Nam",
+   "ratio": 0.2878,
+   "year": 2024
+  },
+  "VU": {
+   "iso3": "VUT",
+   "name": "Vanuatu",
+   "ratio": 0.9066,
+   "year": 2024
+  },
+  "WS": {
+   "iso3": "WSM",
+   "name": "Samoa",
+   "ratio": 0.6167,
+   "year": 2024
+  },
+  "XK": {
+   "iso3": "XKX",
+   "name": "Kosovo",
+   "ratio": 0.3926,
+   "year": 2024
+  },
+  "ZA": {
+   "iso3": "ZAF",
+   "name": "South Africa",
+   "ratio": 0.4049,
+   "year": 2024
+  },
+  "ZM": {
+   "iso3": "ZMB",
+   "name": "Zambia",
+   "ratio": 0.2812,
+   "year": 2024
+  }
+ }
+}

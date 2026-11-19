@@ -1,9 +1,6 @@
-import type { AppStoreConnectStatus, LocalizationStudio } from "./types";
+import type { LocalizationStudio } from "./types";
 
-/** Push needs saved credentials and a key file readable only by the current user. */
-export function connectionReady(connection: AppStoreConnectStatus | undefined): boolean {
-  return Boolean(connection?.ready || (connection?.configured && connection?.keyExists && connection?.keyModeSafe));
-}
+export { connectionReady } from "@/components/app-store-connect-settings";
 
 /** Countries that can be generated from the main listing (not the main one, not its locale). */
 export function selectableTargets(studio: Pick<LocalizationStudio, "countries" | "sourceLocale">): Set<string> {

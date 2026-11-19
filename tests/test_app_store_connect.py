@@ -355,3 +355,110 @@ def test_connection_reports_only_the_apple_error_detail(tmp_path: Path) -> None:
         pytest.raises(AppStoreConnectError, match="cannot access"),
     ):
         client.test()
+
+
+def _client(settings: Settings, handler) -> AppStoreConnectClient:  # type: ignore[no-untyped-def]
+    client = AppStoreConnectClient(
+        settings, client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    client._sleep = lambda _seconds: None  # type: ignore[method-assign]
+    return client
+
+
+def test_collections_follow_pagination(tmp_path: Path) -> None:
+    settings, _ = _credentials(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("cursor") == "2":
+            return httpx.Response(200, json={"data": [{"id": "b"}], "links": {}})
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": "a"}],
+                "links": {"next": "https://api.appstoreconnect.apple.com/v1/things?cursor=2"},
+            },
+        )
+
+    assert [item["id"] for item in _client(settings, handler)._get_all("/things")] == ["a", "b"]
+
+
+def test_rate_limits_are_retried_with_retry_after(tmp_path: Path) -> None:
+    settings, _ = _credentials(tmp_path)
+    calls: list[int] = []
+    waits: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) < 3:
+            return httpx.Response(429, headers={"Retry-After": "7"}, json={"errors": []})
+        return httpx.Response(200, json={"data": []})
+
+    client = _client(settings, handler)
+    client._sleep = waits.append  # type: ignore[method-assign]
+    assert client._request("GET", "/apps") == {"data": []}
+    assert len(calls) == 3
+    assert waits == [7.0, 7.0]
+
+
+def test_empty_delete_responses_are_ok_and_versions_are_selectable(tmp_path: Path) -> None:
+    settings, _ = _credentials(tmp_path)
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(204)
+
+    client = _client(settings, handler)
+    assert client._request("DELETE", "/appScreenshots/1") == {}
+    client._request("GET", "/appPricePoints/x/equalizations", version="v3")
+    assert seen[-1].startswith("https://api.appstoreconnect.apple.com/v3/")
+    with pytest.raises(AppStoreConnectError, match="non-App Store Connect URL"):
+        client._request("GET", "https://example.com/steal")
+
+
+def test_snapshot_prefers_the_editable_version_and_app_info() -> None:
+    from local_aso_tracker.apple.app_store_connect import _pick_app_info, _pick_version
+
+    versions = [
+        {
+            "id": "live",
+            "attributes": {"appStoreState": "READY_FOR_SALE", "createdDate": "2026-11-10"},
+        },
+        {
+            "id": "next",
+            "attributes": {"appStoreState": "PREPARE_FOR_SUBMISSION", "createdDate": "2026-11-01"},
+        },
+    ]
+    assert _pick_version(versions)["id"] == "next"
+    assert _pick_version(versions[:1])["id"] == "live"
+    infos = [
+        {"id": "live-info", "attributes": {"state": "READY_FOR_DISTRIBUTION"}},
+        {"id": "next-info", "attributes": {"state": "PREPARE_FOR_SUBMISSION"}},
+    ]
+    assert _pick_app_info(infos)["id"] == "next-info"
+
+
+def test_uploads_only_go_to_apple_hosts_without_the_api_token(tmp_path: Path) -> None:
+    settings, _ = _credentials(tmp_path)
+    uploads: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        uploads.append(request)
+        return httpx.Response(200)
+
+    client = _client(settings, handler)
+    client._upload_part(
+        url="https://store-032.blobstore.apple.com/upload?token=x",
+        method="PUT",
+        headers={"Content-Type": "image/png"},
+        data=b"png-bytes",
+    )
+    assert uploads[0].content == b"png-bytes"
+    assert "authorization" not in {key.lower() for key in uploads[0].headers}
+    for url in (
+        "http://store.apple.com/x",
+        "https://apple.com.evil.example/x",
+        "https://example.com/x",
+    ):
+        with pytest.raises(AppStoreConnectError, match="non-Apple URL"):
+            client._upload_part(url=url, method="PUT", headers={}, data=b"")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -14,7 +15,14 @@ import jwt
 
 from local_aso_tracker.config import Settings
 
-APP_STORE_CONNECT_BASE_URL = "https://api.appstoreconnect.apple.com/v1"
+APP_STORE_CONNECT_ROOT = "https://api.appstoreconnect.apple.com"
+APP_STORE_CONNECT_BASE_URL = f"{APP_STORE_CONNECT_ROOT}/v1"
+RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAX_RETRIES = 3
+MAX_RETRY_WAIT_SECONDS = 30.0
+UPLOAD_TIMEOUT_SECONDS = 120.0
+# App info states that are not the live record (the editable copy for the next version).
+_LIVE_APP_INFO_STATES = {"READY_FOR_DISTRIBUTION", "REPLACED_WITH_NEW_INFO"}
 EDITABLE_VERSION_STATES = {
     "PREPARE_FOR_SUBMISSION",
     "INVALID_BINARY",
@@ -26,6 +34,10 @@ EDITABLE_VERSION_STATES = {
 
 class AppStoreConnectError(RuntimeError):
     """App Store Connect could not complete a local authenticated request."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -150,7 +162,7 @@ class AppStoreConnectClient:
         ).get("data", [])
         if not app_infos:
             raise AppStoreConnectError("no App Info record is available for this app")
-        app_info_id = str(app_infos[0]["id"])
+        app_info_id = str(_pick_app_info(app_infos)["id"])
         versions = self._request(
             "GET",
             f"/apps/{app.id}/appStoreVersions",
@@ -162,14 +174,10 @@ class AppStoreConnectClient:
         ).get("data", [])
         if not versions:
             raise AppStoreConnectError("no iOS App Store version is available")
-        raw_version = max(
-            versions,
-            key=lambda item: str(item.get("attributes", {}).get("createdDate") or ""),
-        )
+        raw_version = _pick_version(versions)
         version_id = str(raw_version["id"])
         version_state = str(raw_version.get("attributes", {}).get("appStoreState") or "")
-        app_info_localizations = self._request(
-            "GET",
+        app_info_localizations = self._get_all(
             f"/appInfos/{app_info_id}/appInfoLocalizations",
             params={
                 "limit": 200,
@@ -177,9 +185,8 @@ class AppStoreConnectClient:
                     "locale,name,subtitle,privacyPolicyUrl,privacyChoicesUrl,privacyPolicyText"
                 ),
             },
-        ).get("data", [])
-        version_localizations = self._request(
-            "GET",
+        )
+        version_localizations = self._get_all(
             f"/appStoreVersions/{version_id}/appStoreVersionLocalizations",
             params={
                 "limit": 200,
@@ -187,7 +194,7 @@ class AppStoreConnectClient:
                     "locale,description,keywords,promotionalText,supportUrl,marketingUrl,whatsNew"
                 ),
             },
-        ).get("data", [])
+        )
         app_info_by_locale = {
             str(item.get("attributes", {}).get("locale") or ""): item
             for item in app_info_localizations
@@ -358,6 +365,131 @@ class AppStoreConnectClient:
             "versionLocalizationId": version_localization_id,
         }
 
+    def replace_screenshots(
+        self,
+        *,
+        version_localization_id: str,
+        display_type: str,
+        files: list[tuple[str, bytes]],
+        poll_attempts: int = 30,
+        poll_seconds: float = 2.0,
+    ) -> tuple[list[str], list[str]]:
+        """Replace one screenshot set with `files`, in order. Returns (before ids, after ids).
+
+        Apple's flow per file: reserve the asset, PUT each upload operation, commit with the
+        MD5 checksum, then wait until Apple has processed it.
+        """
+
+        sets = self._get_all(
+            f"/appStoreVersionLocalizations/{version_localization_id}/appScreenshotSets",
+            params={"fields[appScreenshotSets]": "screenshotDisplayType", "limit": 50},
+        )
+        screenshot_set = next(
+            (
+                item
+                for item in sets
+                if item.get("attributes", {}).get("screenshotDisplayType") == display_type
+            ),
+            None,
+        )
+        if screenshot_set is None:
+            created = self._request(
+                "POST",
+                "/appScreenshotSets",
+                json_body={
+                    "data": {
+                        "type": "appScreenshotSets",
+                        "attributes": {"screenshotDisplayType": display_type},
+                        "relationships": {
+                            "appStoreVersionLocalization": {
+                                "data": {
+                                    "type": "appStoreVersionLocalizations",
+                                    "id": version_localization_id,
+                                }
+                            }
+                        },
+                    }
+                },
+            )
+            set_id = str(created["data"]["id"])
+            before: list[str] = []
+        else:
+            set_id = str(screenshot_set["id"])
+            before = [
+                str(item["id"])
+                for item in self._get_all(
+                    f"/appScreenshotSets/{set_id}/appScreenshots", params={"limit": 50}
+                )
+            ]
+        for screenshot_id in before:
+            self._request("DELETE", f"/appScreenshots/{screenshot_id}")
+        after: list[str] = []
+        for file_name, data in files:
+            reserved = self._request(
+                "POST",
+                "/appScreenshots",
+                json_body={
+                    "data": {
+                        "type": "appScreenshots",
+                        "attributes": {"fileName": file_name, "fileSize": len(data)},
+                        "relationships": {
+                            "appScreenshotSet": {
+                                "data": {"type": "appScreenshotSets", "id": set_id}
+                            }
+                        },
+                    }
+                },
+            )["data"]
+            screenshot_id = str(reserved["id"])
+            for operation in reserved.get("attributes", {}).get("uploadOperations") or []:
+                offset = int(operation.get("offset", 0))
+                length = int(operation.get("length", len(data)))
+                self._upload_part(
+                    url=str(operation["url"]),
+                    method=str(operation.get("method", "PUT")),
+                    headers={
+                        str(header["name"]): str(header["value"])
+                        for header in operation.get("requestHeaders") or []
+                    },
+                    data=data[offset : offset + length],
+                )
+            self._request(
+                "PATCH",
+                f"/appScreenshots/{screenshot_id}",
+                json_body={
+                    "data": {
+                        "type": "appScreenshots",
+                        "id": screenshot_id,
+                        "attributes": {
+                            "uploaded": True,
+                            "sourceFileChecksum": hashlib.md5(
+                                data, usedforsecurity=False
+                            ).hexdigest(),
+                        },
+                    }
+                },
+            )
+            self._wait_for_asset(screenshot_id, attempts=poll_attempts, seconds=poll_seconds)
+            after.append(screenshot_id)
+        return before, after
+
+    def _wait_for_asset(self, screenshot_id: str, *, attempts: int, seconds: float) -> None:
+        for _attempt in range(attempts):
+            payload = self._request(
+                "GET",
+                f"/appScreenshots/{screenshot_id}",
+                params={"fields[appScreenshots]": "assetDeliveryState"},
+            )
+            state = (
+                payload.get("data", {}).get("attributes", {}).get("assetDeliveryState") or {}
+            ).get("state")
+            if state == "COMPLETE":
+                return
+            if state == "FAILED":
+                raise AppStoreConnectError("Apple could not process an uploaded screenshot")
+            self._sleep(seconds)
+        raise AppStoreConnectError("Apple is still processing the screenshots; check again later")
+
     def _request(
         self,
         method: str,
@@ -365,21 +497,41 @@ class AppStoreConnectClient:
         *,
         params: dict[str, str | int] | None = None,
         json_body: dict[str, object] | None = None,
+        version: str = "v1",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
-        token = self._token()
-        try:
-            response = self._client.request(
-                method,
-                f"{APP_STORE_CONNECT_BASE_URL}{path}",
-                params=params,
-                json=json_body,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        except httpx.HTTPError as exc:
-            raise AppStoreConnectError("App Store Connect is unavailable") from exc
+        """One authenticated call; `path` may be a full `links.next` URL from Apple.
+
+        Retries rate limits and transient server errors (honouring `Retry-After`),
+        returns `{}` for empty 204 responses, and never logs response bodies.
+        """
+
+        url = path if path.startswith("https://") else f"{APP_STORE_CONNECT_ROOT}/{version}{path}"
+        if not url.startswith(f"{APP_STORE_CONNECT_ROOT}/"):
+            raise AppStoreConnectError("refusing to call a non-App Store Connect URL")
+        attempt = 0
+        while True:
+            token = self._token()
+            try:
+                response = self._client.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json_body,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=timeout or self.settings.request_timeout,
+                )
+            except httpx.HTTPError as exc:
+                raise AppStoreConnectError("App Store Connect is unavailable") from exc
+            if response.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
+                attempt += 1
+                self._sleep(_retry_wait(response, attempt))
+                continue
+            break
         if response.status_code >= 400:
-            detail = _error_detail(response)
-            raise AppStoreConnectError(detail)
+            raise AppStoreConnectError(_error_detail(response), status=response.status_code)
+        if response.status_code == 204 or not response.content:
+            return {}
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
@@ -387,6 +539,70 @@ class AppStoreConnectClient:
         if not isinstance(payload, dict):
             raise AppStoreConnectError("App Store Connect returned an unexpected response")
         return payload
+
+    def _get_all(
+        self,
+        path: str,
+        *,
+        params: dict[str, str | int] | None = None,
+        version: str = "v1",
+        max_pages: int = 50,
+        included: dict[tuple[str, str], dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Every item of a collection, following `links.next` pagination.
+
+        When `included` is given, related resources from every page are added to it,
+        keyed by (type, id).
+        """
+
+        items: list[dict[str, Any]] = []
+        payload = self._request("GET", path, params=params, version=version)
+        for _page in range(max_pages):
+            data = payload.get("data", [])
+            if isinstance(data, list):
+                items.extend(item for item in data if isinstance(item, dict))
+            if included is not None:
+                for item in payload.get("included", []) or []:
+                    if isinstance(item, dict) and "type" in item and "id" in item:
+                        included[(str(item["type"]), str(item["id"]))] = item
+            next_url = (payload.get("links") or {}).get("next")
+            if not next_url:
+                break
+            payload = self._request("GET", str(next_url))
+        return items
+
+    def _upload_part(
+        self,
+        *,
+        url: str,
+        method: str,
+        headers: dict[str, str],
+        data: bytes,
+    ) -> None:
+        """PUT one asset chunk to the upload URL App Store Connect handed out.
+
+        These URLs are pre-signed storage endpoints: no bearer token is sent, and only
+        https URLs on Apple hosts are accepted.
+        """
+
+        parsed = httpx.URL(url)
+        host = (parsed.host or "").lower()
+        if parsed.scheme != "https" or not (host == "apple.com" or host.endswith(".apple.com")):
+            raise AppStoreConnectError("refusing to upload to a non-Apple URL")
+        try:
+            response = self._client.request(
+                method.upper(), url, headers=headers, content=data, timeout=UPLOAD_TIMEOUT_SECONDS
+            )
+        except httpx.HTTPError as exc:
+            raise AppStoreConnectError("the screenshot upload could not reach Apple") from exc
+        if response.status_code >= 400:
+            raise AppStoreConnectError(
+                f"Apple rejected an upload part (HTTP {response.status_code})"
+            )
+
+    @staticmethod
+    def _sleep(seconds: float) -> None:
+        time.sleep(seconds)
 
     def _token(self) -> str:
         settings = self.settings
@@ -419,6 +635,38 @@ class AppStoreConnectClient:
             )
         except Exception as exc:
             raise AppStoreConnectError("could not create the App Store Connect token") from exc
+
+
+def _retry_wait(response: httpx.Response, attempt: int) -> float:
+    header = response.headers.get("Retry-After", "")
+    try:
+        wait = float(header)
+    except ValueError:
+        wait = float(2 ** (attempt - 1))
+    return max(0.0, min(MAX_RETRY_WAIT_SECONDS, wait))
+
+
+def _pick_version(versions: list[dict[str, Any]]) -> dict[str, Any]:
+    """The newest editable iOS version; else the newest one (writes then refuse clearly)."""
+
+    newest_first = sorted(
+        versions,
+        key=lambda item: str(item.get("attributes", {}).get("createdDate") or ""),
+        reverse=True,
+    )
+    for item in newest_first:
+        if str(item.get("attributes", {}).get("appStoreState") or "") in EDITABLE_VERSION_STATES:
+            return item
+    return newest_first[0]
+
+
+def _pick_app_info(app_infos: list[dict[str, Any]]) -> dict[str, Any]:
+    """When a new version is being prepared there are two app infos; edit the non-live one."""
+
+    for item in app_infos:
+        if str(item.get("attributes", {}).get("state") or "") not in _LIVE_APP_INFO_STATES:
+            return item
+    return app_infos[0]
 
 
 def _key_mode_is_safe(path: Path) -> bool:

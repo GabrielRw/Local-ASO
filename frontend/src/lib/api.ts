@@ -52,3 +52,15 @@ export async function apiPost<T>(path: string, body: object = {}): Promise<T> {
     }),
   );
 }
+
+/** Raw image upload (screenshot sources and renders); the server checks type and size. */
+export async function apiPostImage<T>(path: string, query: Query, image: Blob): Promise<T> {
+  const type = image.type === "image/jpeg" ? "image/jpeg" : "image/png";
+  return parse<T>(
+    await fetch(withQuery(path, query), {
+      method: "POST",
+      headers: { "Content-Type": type, Accept: "application/json" },
+      body: image,
+    }),
+  );
+}

@@ -80,7 +80,7 @@ from local_aso_tracker.repositories.niches import (
     remove_niche_country,
 )
 from local_aso_tracker.repositories.onboarding import complete_onboarding, onboarding_completed
-from local_aso_tracker.services import background_sync
+from local_aso_tracker.services import background_sync, pricing, screenshots
 from local_aso_tracker.services.agent import (
     CLI_PROVIDER_IDS,
     AgentError,
@@ -1161,6 +1161,92 @@ class DashboardService:
             "health": health,
         }
 
+    def screenshot_delete(self, body: dict[str, Any]) -> dict[str, object]:
+        return screenshots.delete_source(int(body["appId"]), int(body["sourceId"]))
+
+    def screenshot_reorder(self, body: dict[str, Any]) -> dict[str, object]:
+        return screenshots.reorder_sources(
+            int(body["appId"]), [int(item) for item in body["order"]]
+        )
+
+    def screenshot_caption(self, body: dict[str, Any]) -> dict[str, object]:
+        return screenshots.save_caption(
+            int(body["appId"]),
+            int(body["sourceId"]),
+            locale=str(body["locale"]),
+            headline=str(body.get("headline", "")),
+            subline=str(body.get("subline", "")),
+        )
+
+    def screenshot_settings(self, body: dict[str, Any]) -> dict[str, object]:
+        style = body.get("style")
+        return screenshots.save_settings(
+            int(body["appId"]),
+            main_locale=str(body["mainLocale"]) if body.get("mainLocale") else None,
+            style=style if isinstance(style, dict) else None,
+        )
+
+    def screenshot_draft(self, body: dict[str, Any]) -> dict[str, object]:
+        """Draft main-locale captions from the app's public listing and saved metadata."""
+
+        app_id = int(body["appId"])
+        country = validate_country_code(str(body.get("country", "us")))
+        listing = self.listing(app_id, country)
+        with session_scope() as session:
+            metadata = get_listing_metadata(session, app_id, country)
+            context = {
+                "name": metadata.name if metadata else listing.track_name,
+                "subtitle": metadata.subtitle if metadata else "",
+                "keywords": metadata.keyword_field if metadata else "",
+                "description": " ".join(listing.description.split())[:2_500],
+            }
+        return screenshots.draft_captions(app_id, context, provider=body.get("provider"))
+
+    def screenshot_translate(self, body: dict[str, Any]) -> dict[str, object]:
+        locales = [str(item) for item in body.get("locales", [])]
+        return screenshots.translate_captions(
+            int(body["appId"]), locales, provider=body.get("provider")
+        )
+
+    def screenshot_push(self, body: dict[str, Any]) -> dict[str, object]:
+        """Upload rendered screenshots to App Store Connect (the UI confirms first)."""
+
+        return screenshots.push_to_app_store_connect(
+            int(body["appId"]),
+            locales=[str(item) for item in body.get("locales", [])],
+            devices=[str(item) for item in body.get("devices", [])],
+        )
+
+    def pricing_items(self, body: dict[str, Any]) -> dict[str, object]:
+        return pricing.list_items(int(body["appId"]))
+
+    def pricing_suggest(self, body: dict[str, Any]) -> dict[str, object]:
+        """Read prices from App Store Connect and compute PPP suggestions (no writes)."""
+
+        return pricing.suggestions(
+            int(body["appId"]),
+            kind=str(body["kind"]),
+            item_id=str(body["id"]),
+            scope="all" if body.get("scope") == "all" else "tracked",
+            floor=float(body.get("floor", pricing.DEFAULT_FLOOR)),
+            ceiling=float(body.get("ceiling", pricing.DEFAULT_CEILING)),
+        )
+
+    def pricing_push(self, body: dict[str, Any]) -> dict[str, object]:
+        """Write reviewed price changes (the UI lists and confirms each one first)."""
+
+        changes = body.get("changes")
+        return pricing.push_prices(
+            int(body["appId"]),
+            kind=str(body["kind"]),
+            item_id=str(body["id"]),
+            item_name=str(body.get("name", "")),
+            changes=[item for item in changes if isinstance(item, dict)]
+            if isinstance(changes, list)
+            else [],
+            preserve_current_price=bool(body.get("preserveCurrentPrice", True)),
+        )
+
     def export_fastlane(self, body: dict[str, Any]) -> dict[str, object]:
         """Write a fastlane metadata folder under the local exports directory only."""
 
@@ -1417,6 +1503,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/pricing":
+                query = parse_qs(parsed.query)
+                self._json(pricing.pricing_payload(int(query["appId"][0])))
+                return
+            if parsed.path == "/api/screenshots":
+                query = parse_qs(parsed.query)
+                self._json(screenshots.studio_payload(int(query["appId"][0])))
+                return
+            if parsed.path.startswith("/api/screenshots/file/"):
+                parts = parsed.path.split("/")
+                path, content_type = screenshots.file_for(parts[4], int(parts[5]))
+                content = path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self._headers(content_type, len(content))
+                self.end_headers()
+                self.wfile.write(content)
+                return
             if parsed.path == "/api/bootstrap":
                 query = parse_qs(parsed.query)
                 app_id = int(query["appId"][0]) if query.get("appId") else None
@@ -1513,9 +1616,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        rejection = self._cross_origin_rejection()
+        rejection = self._cross_origin_rejection(binary=parsed.path in BINARY_ROUTES)
         if rejection:
             self._error(HTTPStatus.FORBIDDEN, rejection)
+            return
+        if parsed.path in BINARY_ROUTES:
+            self._binary_post(parsed.path, parse_qs(parsed.query))
             return
         try:
             body = self._read_json()
@@ -1528,6 +1634,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/countries": self.service.add_country,
                 "/api/background-sync": self.service.set_background_sync,
                 "/api/exports/fastlane": self.service.export_fastlane,
+                "/api/screenshots/delete": self.service.screenshot_delete,
+                "/api/screenshots/reorder": self.service.screenshot_reorder,
+                "/api/screenshots/caption": self.service.screenshot_caption,
+                "/api/screenshots/settings": self.service.screenshot_settings,
+                "/api/screenshots/draft": self.service.screenshot_draft,
+                "/api/screenshots/translate": self.service.screenshot_translate,
+                "/api/screenshots/push": self.service.screenshot_push,
+                "/api/pricing/items": self.service.pricing_items,
+                "/api/pricing/suggest": self.service.pricing_suggest,
+                "/api/pricing/push": self.service.pricing_push,
                 "/api/reveal": self.service.reveal_export,
                 "/api/apps/deactivate": self.service.deactivate_app,
                 "/api/check": self.service.check,
@@ -1601,7 +1717,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def _cross_origin_rejection(self) -> str | None:
+    def _binary_post(self, path: str, query: dict[str, list[str]]) -> None:
+        """Raw image uploads (screenshots); everything else is JSON."""
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > BINARY_LIMIT:
+                raise ValueError("images must be 15 MB or smaller")
+            data = self.rfile.read(length)
+            app_id = int(query["appId"][0])
+            if path == "/api/screenshots/sources":
+                name = str(query.get("name", [""])[0])
+                result = screenshots.add_source(app_id, data, original_name=name)
+            else:
+                result = screenshots.save_render(
+                    app_id,
+                    locale=str(query["locale"][0]),
+                    device=str(query["device"][0]),
+                    position=int(query["position"][0]),
+                    data=data,
+                )
+            self._json(result)
+        except (ValueError, KeyError) as exc:
+            self._error(HTTPStatus.BAD_REQUEST, str(exc))
+        except Exception as exc:
+            logger.exception("Dashboard upload failed")
+            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"local dashboard error: {exc}")
+
+    def _cross_origin_rejection(self, *, binary: bool = False) -> str | None:
         """Refuse actions not sent by this dashboard's own page.
 
         Actions write files, install a LaunchAgent, and spend Apple quota, so another web
@@ -1616,8 +1759,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if hostname not in {"127.0.0.1", "localhost", "::1"}:
             return "actions are only accepted on this computer's local address"
         content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-        if content_type != "application/json":
-            return "actions must be sent as JSON"
+        # Image uploads use raw image bodies; a cross-site form can't send those either.
+        allowed = {"image/png", "image/jpeg"} if binary else {"application/json"}
+        if content_type not in allowed:
+            return "actions must be sent as JSON" if not binary else "upload a PNG or JPEG image"
         origin = self.headers.get("Origin")
         if origin is not None:
             expected = {f"http://{host}", f"https://{host}"}
@@ -1657,6 +1802,8 @@ class LocalDashboardServer(ThreadingHTTPServer):
 
 
 READY_PREFIX = "LOCAL_ASO_READY"
+BINARY_ROUTES = {"/api/screenshots/sources", "/api/screenshots/rendered"}
+BINARY_LIMIT = 15 * 1024 * 1024 + 1
 
 
 class _ShutdownRequested(Exception):

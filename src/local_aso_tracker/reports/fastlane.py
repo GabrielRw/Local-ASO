@@ -8,13 +8,15 @@ anything Local ASO doesn't know about untouched. Nothing is uploaded from here.
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from local_aso_tracker.models import App, ListingMetadata, Storefront
+from local_aso_tracker.config import data_dir
+from local_aso_tracker.models import App, ListingMetadata, ScreenshotRender, Storefront
 from local_aso_tracker.repositories.listing_localizations import (
     get_main_localization_country,
     list_localization_drafts,
@@ -136,4 +138,20 @@ def export_fastlane_metadata(
         )
     for locale, (fields, urls) in written.items():
         _write_locale(metadata_dir / locale, fields, urls)
+    # Rendered screenshots: fastlane `deliver` reads screenshots/<locale>/*.png and detects
+    # the device from each image's pixel size.
+    screenshot_root = data_dir() / "screenshots" / str(app.id)
+    for render in session.scalars(
+        select(ScreenshotRender)
+        .where(ScreenshotRender.app_id == app.id)
+        .order_by(ScreenshotRender.locale, ScreenshotRender.device, ScreenshotRender.position)
+    ):
+        source_file = (screenshot_root / render.file_name).resolve()
+        if not source_file.is_relative_to(screenshot_root.resolve()) or not source_file.is_file():
+            continue
+        target = (
+            output / "screenshots" / render.locale / f"{render.position:02d}_{render.device}.png"
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_file, target)
     return FastlaneExport(metadata_dir=metadata_dir, locales=sorted(written), skipped=skipped)

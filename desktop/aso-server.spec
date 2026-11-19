@@ -8,6 +8,7 @@ datas = []
 # through importlib.resources, so both ship as files next to the package.
 datas += collect_data_files("local_aso_tracker", include_py_files=True, subdir="migrations")
 datas += collect_data_files("local_aso_tracker", subdir="web/static")
+datas += collect_data_files("local_aso_tracker", subdir="services/data")
 for distribution in ("mcp", "uvicorn", "pydantic", "typer", "rich", "httpx", "alembic", "sqlalchemy"):
     try:
         datas += copy_metadata(distribution)

@@ -11,6 +11,8 @@ import { coverageConfigured } from "./highlight";
 import { COVERAGE_BRAND_INPUT_ID, COVERAGE_SECTION_ID, ListingCoverage } from "./listing-coverage";
 import { LocalizationStudio } from "./localization-studio";
 import { ScreenshotsCard } from "./screenshots-card";
+import { ScreenshotsStudio } from "@/features/screenshots/screenshots-studio";
+import { PricingStudio } from "@/features/pricing/pricing-studio";
 
 function scrollToSection(id: string, focusId?: string) {
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -95,6 +97,8 @@ export function OptimizePage() {
       ) : null}
 
       {data && appId ? <LocalizationStudio key={appId} appId={appId} country={selection.country} /> : null}
+      {data && appId ? <ScreenshotsStudio key={`shots-${appId}`} appId={appId} country={selection.country} /> : null}
+      {data && appId ? <PricingStudio key={`pricing-${appId}`} appId={appId} country={selection.country} /> : null}
     </Page>
   );
 }

@@ -2,7 +2,9 @@
 
 - Target Python 3.12 or newer and manage the environment with `uv`.
 - Keep the application local-only. Persist application data in SQLite and make external runtime requests only to Apple's public iTunes Search API, the optional read-only Apple Ads Platform API, and the optional App Store Connect API using local credentials. The only other HTTP target allowed is the user's own Ollama on a loopback address. Local AI CLIs (Claude, Codex, Gemini, OpenCode) are run as subprocesses; the app itself never calls an AI service.
-- Every dashboard POST must pass the origin check (loopback Host, JSON body, matching Origin when sent). Server actions that write files only write inside `config.exports_dir()`.
+- Every dashboard POST must pass the origin check (loopback Host, JSON body, matching Origin when sent). Only the screenshot routes in `BINARY_ROUTES` accept raw `image/png` or `image/jpeg` bodies. Server actions that write files only write inside `config.exports_dir()` or the app's screenshots folder under `data_dir()`.
+- App Store Connect writes (listing text, screenshots, prices) need a confirmation in the dashboard that lists every change, and every write is logged with what it replaced. Asset uploads go only to the `https://*.apple.com` upload URLs Apple returns, without the API token. Never upload screenshots or change prices on a real app from tests or scripts.
+- Price suggestions use the bundled World Bank table in `services/data/ppp.json` (cited source and retrieval date). Never fetch it at runtime, and never present it as sales or demand data.
 - Keep CLI, configuration, persistence, Apple HTTP code, services, and report generation in separate modules.
 - Use UTC for persisted timestamps and local time for user-facing CLI timestamps.
 - Preserve ranking uncertainty: a missing app has `rank = NULL`, `found = false`, and is displayed as `>limit`.

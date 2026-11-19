@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Languages, PlugZap, RefreshCw, Save, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Languages, PlugZap, RefreshCw, Save, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,12 +26,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiPost } from "@/lib/api";
 import { countryFlag, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AppStoreConnectSettings } from "@/components/app-store-connect-settings";
 import { FastlaneExportButton } from "./fastlane-export";
 import { CharCount } from "./highlight-input";
 import { replaceDraft, useLocalizationStudio, usePatchStudio } from "./queries";
 import { connectionReady, selectableTargets } from "./studio";
 import type {
-  AppStoreConnectStatus,
   LocalizationCountry,
   LocalizationDraft,
   LocalizationFieldKey,
@@ -220,7 +220,7 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
           </p>
         ) : null}
 
-        <ConnectionSettings
+        <AppStoreConnectSettings
           connection={data.connection}
           onSaved={(connection) => patch((current) => ({ ...current, connection }))}
           onTested={refresh}
@@ -300,100 +300,6 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
         </AlertDialogContent>
       </AlertDialog>
     </Card>
-  );
-}
-
-function ConnectionSettings({
-  connection,
-  onSaved,
-  onTested,
-}: {
-  connection: AppStoreConnectStatus;
-  onSaved: (connection: AppStoreConnectStatus) => void;
-  onTested: () => Promise<unknown>;
-}) {
-  const [open, setOpen] = useState(!connection.configured);
-  const [issuerId, setIssuerId] = useState(connection.issuerId ?? "");
-  const [keyId, setKeyId] = useState(connection.keyId ?? "");
-  const [keyPath, setKeyPath] = useState(connection.keyPath ?? "");
-  const body = { issuerId: issuerId.trim(), keyId: keyId.trim(), keyPath: keyPath.trim() };
-
-  const save = useMutation({
-    mutationFn: () => apiPost<AppStoreConnectStatus>("/api/app-store-connect/settings", body),
-    onSuccess: (result) => {
-      onSaved(result);
-      toast.success("App Store Connect settings saved locally.");
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const test = useMutation({
-    mutationFn: async () => {
-      await apiPost("/api/app-store-connect/settings", body);
-      return apiPost("/api/app-store-connect/test", {});
-    },
-    onSuccess: async () => {
-      toast.success("App Store Connect connection verified.");
-      await onTested();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const busy = save.isPending || test.isPending;
-
-  return (
-    <div className="rounded-lg border">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls="asc-settings"
-        onClick={() => setOpen((value) => !value)}
-        className="hover:bg-muted/50 focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-medium focus-visible:ring-[3px] focus-visible:outline-none"
-      >
-        App Store Connect push settings
-        {connection.configured && !connectionReady(connection) ? (
-          <span className="text-destructive text-xs font-normal">
-            {connection.keyExists ? "Key file must be readable only by you" : "Key file not found"}
-          </span>
-        ) : null}
-        <ChevronDown className={cn("ml-auto size-4 transition-transform", open && "rotate-180")} aria-hidden />
-      </button>
-      {open ? (
-        <div id="asc-settings" className="grid gap-4 border-t p-4">
-          <FieldGroup className="grid gap-4 md:grid-cols-[1fr_12rem_1.5fr]">
-            <Field>
-              <FieldLabel htmlFor="asc-issuer">Issuer ID</FieldLabel>
-              <Input id="asc-issuer" value={issuerId} autoComplete="off" onChange={(event) => setIssuerId(event.target.value)} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="asc-key-id">Key ID</FieldLabel>
-              <Input id="asc-key-id" value={keyId} autoComplete="off" onChange={(event) => setKeyId(event.target.value)} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="asc-key-path">Private key path</FieldLabel>
-              <Input
-                id="asc-key-path"
-                value={keyPath}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="~/.local-aso-tracker/app-store-connect/AuthKey_XXXX.p8"
-                onChange={(event) => setKeyPath(event.target.value)}
-              />
-            </Field>
-          </FieldGroup>
-          <FieldDescription>
-            Enter the path to the .p8 file, not its contents. The private key is read locally, never returned to the
-            browser, logged, or exported.
-          </FieldDescription>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => save.mutate()} disabled={busy}>
-              {save.isPending ? <Spinner /> : <Save />} Save connection
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => test.mutate()} disabled={busy}>
-              {test.isPending ? <Spinner /> : <PlugZap />} {test.isPending ? "Testing…" : "Test connection"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </div>
   );
 }
 

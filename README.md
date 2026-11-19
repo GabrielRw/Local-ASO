@@ -26,6 +26,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Public listing-health review, screenshot previews when available, and competitor comparison.
 - Three-step listing strategy audit with distribution goal, brand term, highlighted duplication checks, and title-order verification.
 - CLI commands for managing apps, keywords, storefronts, and tracking targets.
+- Screenshot studio: caption raw screenshots, translate captions with the local agent, render iPhone 6.9" and iPad 13" sets for every tracked locale, and replace them on an editable App Store Connect version.
+- Country pricing: purchasing-power price suggestions for the app, in-app purchases, and subscriptions, reviewed per territory before they are pushed to App Store Connect.
 - CSV/JSON exports, a fastlane `deliver` metadata export, and a self-contained HTML report that can be opened offline.
 - SQLite persistence, idempotent setup, and optional scheduling through your operating system.
 
@@ -36,6 +38,8 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Niche research](#niche-research)
 - [App audits](#app-audits)
 - [Localized App Store listings](#localized-app-store-listings)
+- [Localized screenshots](#localized-screenshots)
+- [Country pricing](#country-pricing)
 - [Competitor keyword matrix](#competitor-keyword-matrix)
 - [Apple Ads reporting](#apple-ads-reporting)
 - [Local MCP server](#local-mcp-server)
@@ -108,7 +112,7 @@ The sidebar holds the app switcher (add or remove apps from its menu), the app v
 
 1. **Audit** (start here). Run a 0–100 audit for the selected storefront: discovery by your local AI (Claude, Codex, Gemini, OpenCode, or Ollama), a native-language review, Apple rank checks, and an editor pass that keeps only evidence-backed findings. Recommended keywords are sorted by opportunity and can be tracked in one click; searches for competitor app names are listed separately as Apple Ads keywords. **All markets** shows the latest audit per storefront. **AI agent** sets CLI paths, the Ollama model, and tests the connection.
 2. **Keywords.** Top 10 / Top 50 / average-rank cards with 7- and 30-day trends (click for history), the sortable rankings table (popularity, difficulty, Top 5 apps, change, signal), **Run check** for stale targets, **Add keywords** (several storefronts and devices at once, with an optional localized preview), a per-keyword history chart, the overall rank trend, and “Losing to”. Click a Top 5 icon to add that app to Competitors.
-3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, screenshots Apple returns, and the localization studio that drafts, reviews, and pushes localized metadata to an editable App Store Connect version.
+3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, screenshots Apple returns, the localization studio that drafts, reviews, and pushes localized metadata to an editable App Store Connect version, the screenshot studio, and purchasing-power pricing.
 4. **Competitors.** The keyword-by-app rank matrix with **Refresh rankings**, plus a side-by-side public listing comparison.
 5. **Paid search.** Read-only Apple Ads: account setup, 30-day spend and installs, campaigns, keywords by country, and Apple's keyword suggestions with their measured popularity.
 6. **Niche research.** Brainstorm a keyword board for an idea that is not tied to an app yet, then check it across storefronts.
@@ -205,6 +209,27 @@ chmod 600 ~/.local-aso-tracker/app-store-connect/AuthKey_XXXXXXXXXX.p8
 5. In the dashboard, enter the Issuer ID, Key ID, and private-key path, save, and choose **Test connection**.
 
 The private key is read only by the local Python backend. It is never returned by the API, rendered in the browser, written to logs, or included in exports. A group- or world-readable key is rejected. The app bundle ID configured in Local ASO must be visible to the API key. If no App Store Connect credentials are configured, localization generation falls back to the public App Store listing for the source country; private remote metadata is not accessed.
+
+## Localized screenshots
+
+**Optimize → Screenshot studio** turns raw app captures into captioned App Store screenshots for each locale you track.
+
+1. **Import** up to 10 PNG or JPEG captures. They are stored under `~/.local-aso-tracker/screenshots/<app>/` and never leave the Mac unless you upload them.
+2. **Caption** each screenshot with a headline and an optional subline in the main caption language, or choose **Draft main captions** to have the local agent write them from your listing.
+3. **Translate** the captions into every tracked locale with the local agent. Captions you wrote or edited yourself are never overwritten.
+4. **Render all** draws each screenshot on a canvas in the dashboard at App Store Connect's required sizes: iPhone 6.9" (1320 x 2868) and iPad 13" (2064 x 2752). The template is a colour gradient, the caption, and the screenshot with rounded corners, without device frames. System fonts shape every script, including right-to-left Arabic and Hebrew and CJK.
+5. **Upload to App Store Connect** lists every locale and device set with its screenshot count before anything is sent. Each chosen set on the editable App Store version is replaced: the old screenshots are deleted, then the new ones are reserved, uploaded to Apple's upload URLs, committed with a checksum, and checked until Apple has processed them. A locale that fails is reported and logged without stopping the others. Upload needs a version in an editable state and an existing localization for that locale (push its listing text first).
+
+Rendered files are also written by the fastlane export as `screenshots/<locale>/<NN>_<device>.png`.
+
+## Country pricing
+
+**Optimize → Purchasing-power prices** suggests a local price for each territory, for the app and for each in-app purchase and subscription. It needs an [App Store Connect API key](#app-store-connect-api-key); changing prices needs the Admin or App Manager role.
+
+- **How suggestions are made.** The starting point is Apple's equalized price for the territory: your base price converted with Apple's exchange rates and taxes. It is multiplied by the territory's price level relative to your base territory, kept between a floor (35% by default) and a ceiling (100% by default). The result is snapped to a real Apple price point: the territory's equalization of the nearest tier in your base territory.
+- **Where price levels come from.** The World Bank's PPP conversion factor (`PA.NUS.PPP`) divided by the official exchange rate (`PA.NUS.FCRF`), latest common year per country, bundled in `src/local_aso_tracker/services/data/ppp.json` with its source and retrieval date. Nothing is fetched from the World Bank at runtime. Territories without data get no suggestion. These are price levels, not sales, revenue, or demand estimates.
+- **Review and push.** Suggesting only reads from App Store Connect. Exclude any row, then **Review changes** lists every territory with its old and new local price before anything is written. App and in-app purchase schedules are rewritten with every other manual price kept, so nothing is dropped; the base territory's price is never changed here. Subscription prices are added per territory, and existing subscribers keep their price unless you turn that off. New prices start immediately.
+- **Log.** Each territory change is stored locally with the price it replaced, its status, and Apple's error when it failed.
 
 ## Competitor keyword matrix
 

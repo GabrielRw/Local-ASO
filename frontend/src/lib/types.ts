@@ -279,3 +279,14 @@ export interface AgentPaths {
   opencode: string;
   ollama: { url: string; model: string; models: string[] };
 }
+
+/** App Store Connect API key status (the key itself never reaches the browser). */
+export interface AppStoreConnectStatus {
+  configured: boolean;
+  ready: boolean;
+  issuerId: string;
+  keyId: string;
+  keyPath: string;
+  keyExists: boolean;
+  keyModeSafe: boolean;
+}

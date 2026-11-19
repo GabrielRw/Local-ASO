@@ -15,6 +15,7 @@ from local_aso_tracker.models import (
     Storefront,
 )
 from local_aso_tracker.repositories.data import normalize_keyword
+from local_aso_tracker.services.localization import market_languages
 
 
 def get_niche_board(session: Session, board_id: int | None = None) -> NicheBoard | None:
@@ -160,6 +161,15 @@ def niche_board_payload(session: Session, board_id: int | None = None) -> dict[s
         for keyword in keywords
         for metric in keyword.metrics
     }
+    terms = {
+        (term.niche_keyword_id, term.country_code): term.term
+        for keyword in keywords
+        for term in keyword.terms
+    }
+    english = {
+        market.country_code: market_languages(market.country_code)[0] == "English"
+        for market in markets
+    }
     payload["board"] = {
         "id": board.id,
         "name": board.name,
@@ -178,7 +188,13 @@ def niche_board_payload(session: Session, board_id: int | None = None) -> dict[s
                 "id": keyword.id,
                 "keyword": keyword.keyword,
                 "metrics": [
-                    _metric_dict(metrics.get((keyword.id, market.country_code)))
+                    {
+                        **_metric_dict(metrics.get((keyword.id, market.country_code))),
+                        # The phrase searched in this market; null = searched as written.
+                        "term": terms.get((keyword.id, market.country_code)),
+                        "untranslated": not english[market.country_code]
+                        and (keyword.id, market.country_code) not in terms,
+                    }
                     for market in markets
                 ],
             }

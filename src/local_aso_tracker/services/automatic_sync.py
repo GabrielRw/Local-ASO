@@ -20,6 +20,7 @@ from local_aso_tracker.services.keyword_popularity import (
     popularity_configured,
     refresh_keyword_popularity,
 )
+from local_aso_tracker.services.sync_lock import SyncBusy, sync_lock
 
 logger = logging.getLogger(__name__)
 SECONDS_PER_DAY = 24 * 60 * 60
@@ -35,6 +36,8 @@ class AutomaticSyncSummary:
     searches: int
     failures: int
     skipped: int = 0
+    # True when another process held the sync lock, so nothing was checked.
+    busy: bool = False
 
 
 def sync_all_current_keywords(
@@ -43,6 +46,15 @@ def sync_all_current_keywords(
 ) -> AutomaticSyncSummary:
     """Check every active target across every active app, market, and device."""
 
+    try:
+        with sync_lock():
+            return _sync_all_current_keywords(check_runner=check_runner)
+    except SyncBusy:
+        logger.info("Rank sync skipped: another process is already checking ranks")
+        return AutomaticSyncSummary(targets=0, searches=0, failures=0, busy=True)
+
+
+def _sync_all_current_keywords(*, check_runner: CheckRunner | None) -> AutomaticSyncSummary:
     settings = load_settings()
     runner = check_runner or run_checks
     _refresh_popularity_quietly()

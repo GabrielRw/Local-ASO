@@ -148,3 +148,63 @@ async def test_niche_metrics_distinguish_no_rating_data_from_check_failure(
     assert metrics[0]["difficulty"] is None
     assert metrics[1]["status"] == "error"
     assert metrics[1]["error"] == "Apple search returned HTTP 503"
+
+
+@pytest.mark.asyncio
+async def test_niche_markets_search_their_own_language(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from local_aso_tracker.database import run_migrations, session_scope
+    from local_aso_tracker.services.niche_research import localize_board_terms
+
+    monkeypatch.setenv("ASO_DATA_DIR", str(tmp_path))
+    run_migrations()
+    with session_scope() as session:
+        board = create_niche_board(
+            session,
+            name="Couples",
+            brief="couples",
+            provider="claude",
+            keywords=["couples app"],
+            countries=["us", "de", "jp"],
+        )
+        board_id = board.id
+
+    calls: list[list[str]] = []
+
+    def translator(keywords, languages):  # type: ignore[no-untyped-def]
+        calls.append(list(languages))
+        return {"German": {"couples app": "paar app"}}  # nothing for Japanese
+
+    warnings = localize_board_terms(board_id, translator=translator)
+    assert calls == [["German", "Japanese"]] or sorted(calls[0]) == ["German", "Japanese"]
+    assert [(item["language"], item["keyword"]) for item in warnings] == [
+        ("Japanese", "couples app")
+    ]
+    # A second pass only retries what is still missing.
+    localize_board_terms(
+        board_id, translator=lambda _k, languages: calls.append(list(languages)) or {}
+    )
+    assert calls[-1] == ["Japanese"]
+
+    searched: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        searched[request.url.params["country"]] = request.url.params["term"]
+        return httpx.Response(200, json={"resultCount": 0, "results": []}, request=request)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = AppleSearchClient(client=http, request_delay=0, retry_count=0)
+    await refresh_niche_metrics_async(board_id, Settings(request_delay=0), client=client)
+    await http.aclose()
+    assert searched == {"us": "couples app", "de": "paar app", "jp": "couples app"}
+
+    with session_scope() as session:
+        payload = niche_board_payload(session, board_id)
+    cells = payload["board"]["keywords"][0]["metrics"]  # type: ignore[index]
+    assert [(cell["term"], cell["untranslated"]) for cell in cells] == [
+        (None, False),
+        ("paar app", False),
+        (None, True),
+    ]

@@ -26,6 +26,7 @@ from local_aso_tracker.config import (
 from local_aso_tracker.database import run_migrations, session_scope
 from local_aso_tracker.models import App, Keyword, RankCheck, Storefront, TrackingTarget
 from local_aso_tracker.reports.exports import export_history_csv, export_json, export_latest_csv
+from local_aso_tracker.reports.fastlane import export_fastlane_metadata
 from local_aso_tracker.reports.html import generate_html_report
 from local_aso_tracker.repositories.audits import mark_interrupted_runs
 from local_aso_tracker.repositories.data import (
@@ -48,8 +49,11 @@ from local_aso_tracker.services.analytics import (
     calculate_summary,
     opportunity_group,
 )
+from local_aso_tracker.services.automatic_sync import sync_all_current_keywords
 from local_aso_tracker.services.checks import run_checks
 from local_aso_tracker.services.keyword_popularity import refresh_keyword_popularity
+from local_aso_tracker.services.storefronts import require_market
+from local_aso_tracker.services.sync_lock import SyncBusy, sync_lock
 from local_aso_tracker.utils.logging import configure_logging
 
 app = typer.Typer(
@@ -270,8 +274,15 @@ def countries_list() -> None:
 
 
 @countries_app.command("add")
-def countries_add(code: str, display_name: str) -> None:
+def countries_add(
+    code: str,
+    display_name: str | None = typer.Argument(None, help="Defaults to the storefront's name."),
+) -> None:
     require_initialized()
+    try:
+        require_market(code)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     with session_scope() as session:
         item, created = add_storefront(session, code, display_name)
         emit(
@@ -407,17 +418,29 @@ def check(
                     f"{target.storefront.country_code} · {target.device}"
                 )
             return
-        with Progress(
-            SpinnerColumn(), TextColumn("{task.description}"), console=console, disable=quiet_mode
-        ) as progress:
-            task = progress.add_task(f"Checking {len(targets)} targets…", total=len(targets))
-            result = run_checks(
-                session,
-                targets,
-                settings,
-                concurrency=concurrency,
-                progress=lambda amount: progress.advance(task, amount),
+        try:
+            with (
+                sync_lock(),
+                Progress(
+                    SpinnerColumn(),
+                    TextColumn("{task.description}"),
+                    console=console,
+                    disable=quiet_mode,
+                ) as progress,
+            ):
+                task = progress.add_task(f"Checking {len(targets)} targets…", total=len(targets))
+                result = run_checks(
+                    session,
+                    targets,
+                    settings,
+                    concurrency=concurrency,
+                    progress=lambda amount: progress.advance(task, amount),
+                )
+        except SyncBusy:
+            emit(
+                "Another rank check is already running; try again when it finishes.", style="yellow"
             )
+            return
         target_map = {target.id: target for target in targets}
         table = Table(
             "App", "Keyword", "Country", "Device", "Rank", "Status", title="Check results"
@@ -450,6 +473,27 @@ def _ranking_rows(session: Session, targets: list[TrackingTarget]) -> list[Ranki
     return [
         RankingRow(target, pair[0], pair[1]) for target in targets if (pair := pairs.get(target.id))
     ]
+
+
+@app.command("sync")
+def sync() -> None:
+    """Check every active keyword not checked successfully in 24h, then refresh popularity.
+
+    This is what the dashboard runs daily; the background LaunchAgent runs it too.
+    """
+
+    run_migrations()
+    write_default_config()
+    summary = sync_all_current_keywords()
+    if summary.busy:
+        emit("Another rank check is already running; skipped.", style="yellow")
+        return
+    emit(
+        f"Checked {summary.targets} target(s) with {summary.searches} Apple search(es); "
+        f"{summary.failures} failure(s); {summary.skipped} already fresh."
+    )
+    if summary.searches and summary.failures == summary.searches:
+        raise typer.Exit(1)
 
 
 @app.command("popularity")
@@ -706,6 +750,32 @@ def export_history(output: Path = typer.Option(..., "--output")) -> None:
     with session_scope() as session:
         count = export_history_csv(session, _all_targets(session), output)
     emit(f"Exported {count} history row(s) to {output.resolve()}")
+
+
+@export_app.command("fastlane")
+def export_fastlane(
+    app_id: int = typer.Option(..., "--app-id", help="App Store ID."),
+    output: Path = typer.Option(..., "--output", help="Folder to create metadata/ in."),
+    include_unapproved: bool = typer.Option(
+        False, "--include-unapproved", help="Also export drafts that are not approved yet."
+    ),
+) -> None:
+    """Write the listing and localized drafts as a fastlane deliver metadata folder."""
+
+    require_initialized()
+    with session_scope() as session:
+        app_row = session.scalar(select(App).where(App.apple_app_id == app_id))
+        if app_row is None:
+            raise typer.BadParameter(f"unknown app ID: {app_id}")
+        try:
+            result = export_fastlane_metadata(
+                session, app_row, output, include_unapproved=include_unapproved
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    emit(f"Wrote {len(result.locales)} locale(s) to {result.metadata_dir.resolve()}")
+    for item in result.skipped:
+        emit(f"  Skipped {item['locale']}: {item['reason']}", style="yellow")
 
 
 @export_app.command("json")

@@ -144,7 +144,7 @@ export function NichePage() {
           <Bot />
           <AlertTitle>Set up a local AI agent to brainstorm keywords</AlertTitle>
           <AlertDescription>
-            Install the Claude or Codex CLI and sign in, or point Local ASO to its executable from the Audit page&rsquo;s
+            Install and sign in to the Claude, Codex, Gemini, or OpenCode CLI, or run Ollama; set it up from the Audit page&rsquo;s
             agent settings. Existing boards can still be checked against Apple.
           </AlertDescription>
         </Alert>

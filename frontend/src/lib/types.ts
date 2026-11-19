@@ -19,6 +19,12 @@ export interface Country {
   active: boolean;
 }
 
+export interface Market {
+  code: string;
+  name: string;
+  language: string;
+}
+
 export interface AgentProvider {
   id: string;
   label: string;
@@ -135,6 +141,8 @@ export interface Bootstrap {
   apps: AppSummary[];
   countries: Country[];
   devices: { code: Device; name: string }[];
+  /** Every App Store storefront Local ASO can research, with its language. */
+  markets: Market[];
   agentProviders: AgentProvider[];
   defaultAgentProvider: string;
   selectedAppId: number | null;
@@ -260,5 +268,14 @@ export interface AuditPayload {
   providers: AgentProvider[];
   defaultProvider: string;
   auditLanguage: string;
-  agentPaths: { codex: string; claude: string };
+  agentPaths: AgentPaths;
+}
+
+/** Saved CLI path per provider ("" = auto-detect) plus the local Ollama connection. */
+export interface AgentPaths {
+  claude: string;
+  codex: string;
+  gemini: string;
+  opencode: string;
+  ollama: { url: string; model: string; models: string[] };
 }

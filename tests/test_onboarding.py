@@ -82,7 +82,15 @@ def test_onboarding_can_persist_the_selected_research_agent(
         "claude",
     ]
 
-    assert fresh_dashboard.save_agent_provider({"provider": "claude"}) == {"provider": "claude"}
+    tested: list[str] = []
+    monkeypatch.setattr(
+        "local_aso_tracker.web.server.test_provider",
+        lambda provider, **_settings: tested.append(provider) or {"available": True},
+    )
+    saved = fresh_dashboard.save_agent_provider({"provider": "claude"})
+    assert saved["provider"] == "claude"
+    assert tested == ["claude"]
+    assert set(saved["agentPaths"]) >= {"claude", "codex", "gemini", "opencode", "ollama"}  # type: ignore[arg-type]
     assert load_settings().agent_provider == "claude"
 
 

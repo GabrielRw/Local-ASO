@@ -131,7 +131,7 @@ export function AuditPage() {
           <Bot />
           <AlertTitle>Set up a local AI agent to run audits</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-3">
-            Install the Claude or Codex CLI and sign in, or point Local ASO to its executable.
+            Install and sign in to the Claude, Codex, Gemini, or OpenCode CLI, or run a model in Ollama.
             <Button size="sm" variant="outline" onClick={() => setAgentOpen(true)}>
               Open agent settings
             </Button>
@@ -218,7 +218,7 @@ export function AuditPage() {
         onOpenChange={setAgentOpen}
         providers={providers}
         provider={chosenProvider}
-        paths={payload?.agentPaths ?? { codex: "", claude: "" }}
+        paths={payload?.agentPaths}
       />
     </Page>
   );

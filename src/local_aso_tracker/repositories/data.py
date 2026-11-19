@@ -17,6 +17,7 @@ from local_aso_tracker.models import (
     Storefront,
     TrackingTarget,
 )
+from local_aso_tracker.services.storefronts import market
 
 INITIAL_COUNTRIES = {
     "us": "United States",
@@ -96,12 +97,18 @@ def add_keyword(session: Session, value: str) -> tuple[Keyword, bool]:
     return item, True
 
 
-def add_storefront(session: Session, code: str, name: str) -> tuple[Storefront, bool]:
+def add_storefront(session: Session, code: str, name: str | None = None) -> tuple[Storefront, bool]:
+    """Add (or reactivate) a storefront; the name defaults to the registry's English name."""
+
     normalized = validate_country_code(code)
     existing = session.scalar(select(Storefront).where(Storefront.country_code == normalized))
     if existing:
+        if not existing.active:
+            existing.active = True
         return existing, False
-    item = Storefront(country_code=normalized, display_name=name.strip())
+    known = market(normalized)
+    display = (name or "").strip() or (known.name if known else normalized.upper())
+    item = Storefront(country_code=normalized, display_name=display)
     session.add(item)
     session.flush()
     return item, True

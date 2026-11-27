@@ -1,6 +1,6 @@
 [project]
 name = "local-aso-tracker"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local-first App Store keyword ranking tracker"
 readme = "README.md"
 requires-python = ">=3.12"

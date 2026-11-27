@@ -1,0 +1,1 @@
+import{Bn as e,an as t}from"./toggle-group-6h5xXysy.js";import{O as n}from"./index-CC-5v7b3.js";var r=e();function i({className:e,...i}){return(0,r.jsx)(n,{"data-slot":`spinner`,role:`status`,"aria-label":`Loading`,className:t(`size-4 animate-spin`,e),...i})}export{i as t};

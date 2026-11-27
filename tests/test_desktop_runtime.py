@@ -108,6 +108,8 @@ def test_cli_discovery_looks_beyond_a_gui_path(
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     monkeypatch.setattr(agent, "_LOGIN_SHELL_PATH", [])
+    # Only the fake home's install folder: the host may have real copies elsewhere.
+    monkeypatch.setattr(agent, "_EXTRA_BIN_DIRS", ("~/.local/bin",))
 
     assert agent._resolve_provider_executable("claude") == str(fake)
     statuses = {item.id: item.available for item in agent.provider_status()}

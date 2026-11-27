@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from local_aso_tracker import licensing
 from local_aso_tracker.apple.ads import AppleAdsError
 from local_aso_tracker.config import (
     database_path,
@@ -69,6 +70,8 @@ app.add_typer(keywords_app, name="keywords")
 app.add_typer(countries_app, name="countries")
 app.add_typer(track_app, name="track")
 app.add_typer(export_app, name="export")
+licence_app = typer.Typer(no_args_is_help=True, help="Manage the Mac app licence.")
+app.add_typer(licence_app, name="licence")
 
 console = Console()
 error_console = Console(stderr=True)
@@ -846,6 +849,47 @@ def dashboard(
         mcp_port=mcp_port,
         open_browser=open_browser,
     )
+
+
+@licence_app.command("status")
+def licence_status() -> None:
+    """Show whether a licence key is installed."""
+
+    status = licensing.status()
+    if status["licensed"]:
+        emit(f"Licensed to {status['email']} (issued {status['issued']}).", style="green")
+    else:
+        emit("No licence installed. Only the Mac app needs one, for App Store Connect writes.")
+
+
+@licence_app.command("activate")
+def licence_activate(key: str = typer.Argument(..., help="The LASO1-… licence key.")) -> None:
+    """Verify a licence key offline and install it."""
+
+    licence = licensing.activate(key)
+    emit(f"Licence activated for {licence.email}.", style="green")
+
+
+@licence_app.command("remove")
+def licence_remove() -> None:
+    """Remove the installed licence key."""
+
+    licensing.remove()
+    emit("Licence removed.")
+
+
+@licence_app.command("mint")
+def licence_mint(
+    private_key: Path = typer.Option(..., "--private-key", help="Ed25519 private key (PEM)."),
+    email: str = typer.Option(..., help="The buyer's email address."),
+    licence_id: str = typer.Option(..., "--id", help="Order reference, e.g. a Stripe session."),
+) -> None:
+    """Sign a licence key by hand (comps, refunds re-issued, manual sales)."""
+
+    key = licensing.mint(
+        licensing.load_private_key(private_key), licence_id=licence_id, email=email
+    )
+    console.print(key, soft_wrap=True)
 
 
 def main() -> None:

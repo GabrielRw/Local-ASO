@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeDollarSign, PlugZap, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import { BadgeDollarSign, Lock, PlugZap, RefreshCw, Send, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { connectionReady } from "@/components/app-store-connect-settings";
+import { useDialogs } from "@/components/dialogs";
+import { useWritesLocked } from "@/lib/licence";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -59,6 +61,8 @@ export function PricingStudio({ appId, country }: { appId: number; country: stri
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [preserve, setPreserve] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  const locked = useWritesLocked();
+  const dialogs = useDialogs();
 
   const onError = (error: Error) => toast.error(error.message);
   const load = useMutation({
@@ -314,9 +318,13 @@ export function PricingStudio({ appId, country }: { appId: number; country: stri
                   <span className="text-muted-foreground text-xs">
                     Price level is the World Bank ratio relative to {result.baseTerritory}; an arrow shows where the floor or ceiling applied.
                   </span>
-                  <Button className="ml-auto" disabled={!pending.length || push.isPending} onClick={() => setConfirming(true)}>
-                    {push.isPending ? <Spinner /> : <Send />}
-                    Review {pending.length} {pending.length === 1 ? "change" : "changes"}
+                  <Button
+                    className="ml-auto"
+                    disabled={!pending.length || push.isPending}
+                    onClick={() => (locked ? dialogs.open("licence") : setConfirming(true))}
+                  >
+                    {push.isPending ? <Spinner /> : locked ? <Lock /> : <Send />}
+                    {locked ? "Licence required to push" : `Review ${pending.length} ${pending.length === 1 ? "change" : "changes"}`}
                   </Button>
                 </div>
               </div>

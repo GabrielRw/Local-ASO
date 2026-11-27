@@ -10,8 +10,6 @@ import { HEALTH_SECTION_ID, HealthScore, HealthSuggestions } from "./health-card
 import { coverageConfigured } from "./highlight";
 import { COVERAGE_BRAND_INPUT_ID, COVERAGE_SECTION_ID, ListingCoverage } from "./listing-coverage";
 import { LocalizationStudio } from "./localization-studio";
-import { ScreenshotsCard } from "./screenshots-card";
-import { ScreenshotsStudio } from "@/features/screenshots/screenshots-studio";
 import { PricingStudio } from "@/features/pricing/pricing-studio";
 
 function scrollToSection(id: string, focusId?: string) {
@@ -92,12 +90,10 @@ export function OptimizePage() {
             onSetUp={() => scrollToSection(COVERAGE_SECTION_ID, COVERAGE_BRAND_INPUT_ID)}
           />
           {unlocked && data.health ? <HealthSuggestions health={data.health} /> : null}
-          <ScreenshotsCard listing={listing} />
         </>
       ) : null}
 
       {data && appId ? <LocalizationStudio key={appId} appId={appId} country={selection.country} /> : null}
-      {data && appId ? <ScreenshotsStudio key={`shots-${appId}`} appId={appId} country={selection.country} /> : null}
       {data && appId ? <PricingStudio key={`pricing-${appId}`} appId={appId} country={selection.country} /> : null}
     </Page>
   );

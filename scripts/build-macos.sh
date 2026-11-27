@@ -4,9 +4,13 @@
 # Output: desktop/src-tauri/target/release/bundle/{macos/Local ASO.app,dmg/*.dmg}
 # Requires: uv, pnpm (Node), Rust (cargo), Xcode command line tools.
 #
-# The app is ad-hoc signed ("-"). For distribution, sign with a Developer ID and
-# notarize (see README "Desktop app"): set APPLE_SIGNING_IDENTITY, APPLE_ID,
-# APPLE_PASSWORD and APPLE_TEAM_ID before running; Tauri picks them up.
+# The app is ad-hoc signed ("-") unless APPLE_SIGNING_IDENTITY names a
+# "Developer ID Application" certificate. Then every binary in the frozen server is
+# signed with the hardened runtime first (Tauri doesn't sign files in Resources, and
+# notarization rejects unsigned nested code), and Tauri signs and notarizes the app
+# with APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_PATH. See README "Releasing".
+#
+# Extra arguments are passed to `tauri build` (scripts/release-macos.sh uses this).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,12 +29,27 @@ rm -rf "$ROOT/desktop/build/aso-server"
 )
 "$ROOT/desktop/build/aso-server/aso-server" --help >/dev/null
 
+if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  echo "==> Signing the bundled server's binaries"
+  # Mach-O files only, deepest first; the main executable last.
+  while IFS= read -r -d '' file; do
+    if file -b "$file" | grep -q "Mach-O"; then
+      codesign --force --options runtime --timestamp \
+        --entitlements "$ROOT/desktop/aso-server.entitlements" \
+        --sign "$APPLE_SIGNING_IDENTITY" "$file"
+    fi
+  done < <(find "$ROOT/desktop/build/aso-server" -type f ! -path "*/aso-server/aso-server" -print0)
+  codesign --force --options runtime --timestamp \
+    --entitlements "$ROOT/desktop/aso-server.entitlements" \
+    --sign "$APPLE_SIGNING_IDENTITY" "$ROOT/desktop/build/aso-server/aso-server"
+fi
+
 echo "==> Tauri app"
 pnpm --dir "$ROOT/desktop" install --frozen-lockfile
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
-  pnpm --dir "$ROOT/desktop" tauri build --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}"
+  pnpm --dir "$ROOT/desktop" tauri build "$@" --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\"}}}"
 else
-  pnpm --dir "$ROOT/desktop" tauri build
+  pnpm --dir "$ROOT/desktop" tauri build "$@"
 fi
 
 echo "==> Done"

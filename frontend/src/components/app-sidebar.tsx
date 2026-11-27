@@ -41,6 +41,7 @@ import { useCurrentBootstrap } from "@/lib/queries";
 import { useSelection } from "@/lib/selection";
 import { useTheme, type ThemePreference } from "@/lib/theme";
 import { useDialogs } from "@/components/dialogs";
+import { useLicence } from "@/lib/licence";
 
 export const appViews = [
   { path: "/audit", label: "Audit", icon: Gauge },
@@ -63,6 +64,7 @@ export function AppSidebar() {
   const location = useLocation();
   const { theme, setTheme } = useTheme();
   const dialogs = useDialogs();
+  const licence = useLicence();
   const apps = (data?.apps ?? []).filter((app) => app.active);
   const current = apps.find((app) => app.appleAppId === selection.appId) ?? apps[0];
   const search = params.toString() ? `?${params.toString()}` : "";
@@ -180,6 +182,12 @@ export function AppSidebar() {
               <DropdownMenuContent side="top" align="start" className="w-56">
                 <DropdownMenuItem onSelect={() => dialogs.open("setup")}>Setup guide &amp; AI agent…</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => dialogs.open("background-sync")}>Background checks…</DropdownMenuItem>
+                {licence.data?.desktop ? (
+                  <DropdownMenuItem onSelect={() => dialogs.open("licence")}>
+                    Licence &amp; updates…
+                    {licence.data.licensed ? null : <span className="text-muted-foreground ml-auto text-xs">Free</span>}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-muted-foreground text-xs">Appearance</DropdownMenuLabel>
                 {themeOptions.map((option) => (

@@ -1,0 +1,11 @@
+# Cloudflare Worker that turns a paid Stripe Checkout session into a Local ASO licence key.
+# Secrets (never in this file): wrangler secret put STRIPE_SECRET_KEY / LICENCE_PRIVATE_KEY / STRIPE_PRICE_ID
+name = "local-aso-licence"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[vars]
+# Public half of the signing key (scripts/generate-licence-keypair.py). The Worker
+# verifies each key it signs against it, so a misconfigured secret can't hand out bad keys.
+LICENCE_PUBLIC_KEY = ""

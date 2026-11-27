@@ -41,7 +41,6 @@ def test_listing_lookup_uses_public_contract() -> None:
         listing = lookup_listing(6771773264, "US", client=client)
     assert listing.track_name == "Learn Astrology: AstroLingo"
     assert listing.file_size_bytes == 200000000
-    assert listing.screenshot_count == 3
 
 
 def test_listing_lookup_reports_unknown_app() -> None:
@@ -76,29 +75,6 @@ def test_health_score_is_explainable_and_bounded() -> None:
     without_audit = assess_listing(listing)
     assert without_audit.score is None
     assert without_audit.items == []
-
-
-def test_missing_public_screenshot_urls_do_not_affect_strategy_score() -> None:
-    payload = listing_payload()["results"][0]  # type: ignore[index]
-    assert isinstance(payload, dict)
-    payload["screenshotUrls"] = []
-    listing_without_screenshots = AppleListing.model_validate(payload)
-    listing_with_screenshots = AppleListing.model_validate(
-        listing_payload()["results"][0]  # type: ignore[index]
-    )
-    strategy = analyze_distribution_strategy(
-        "Learn Astrology: AstroLingo",
-        "Natal guidance",
-        "zodiac, houses",
-        goal="aso_seo_aeo",
-        brand_term="AstroLingo",
-    )
-
-    without_screenshots = assess_listing(listing_without_screenshots, strategy=strategy)
-    with_screenshots = assess_listing(listing_with_screenshots, strategy=strategy)
-
-    assert without_screenshots.score == with_screenshots.score == 100
-    assert "screenshots" not in {item.key for item in without_screenshots.items}
 
 
 def test_keyword_coverage_repetition_lowers_listing_health_score() -> None:

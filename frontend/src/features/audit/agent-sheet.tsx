@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { apiPost } from "@/lib/api";
 import { useInvalidate } from "@/lib/queries";
-import type { AgentPaths, AgentProvider } from "@/lib/types";
+import { useAgentCheck, useAgentSignIn } from "@/lib/agent";
+import type { AgentCheck, AgentPaths, AgentProvider } from "@/lib/types";
 
 const CLI_PROVIDERS = [
   { id: "claude", label: "Claude" },
@@ -27,6 +28,7 @@ const EMPTY: AgentPaths = {
   ollama: { url: "http://127.0.0.1:11434", model: "", models: [] },
 };
 const FIRST_MODEL = "__first__";
+const NEWEST = "__newest__";
 
 /** Local AI providers: CLI paths, the local Ollama model, a connection test, and saving. */
 export function AgentSheet({
@@ -79,7 +81,15 @@ export function AgentSheet({
     },
     onError: (error) => toast.error(error.message),
   });
-  const available = new Map(providers.map((item) => [item.id, item.available]));
+  const byId = new Map(providers.map((item) => [item.id, item]));
+  const [checks, setChecks] = useState<Record<string, AgentCheck>>({});
+  const [checking, setChecking] = useState<string | null>(null);
+  const check = useAgentCheck((result) => setChecks((current) => ({ ...current, [result.provider]: result })));
+  const signIn = useAgentSignIn();
+  const runCheck = (id: string) => {
+    setChecking(id);
+    check.mutate(id, { onSettled: () => setChecking(null) });
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -93,32 +103,82 @@ export function AgentSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="grid gap-6 px-4">
-          <div className="flex flex-wrap gap-1.5">
-            {providers.map((item) => (
-              <Badge key={item.id} variant={item.available ? "secondary" : "outline"}>
-                {item.label} · {item.available ? "ready" : "not found"}
-              </Badge>
-            ))}
-          </div>
           <FieldSet>
             <FieldLegend variant="label">Command-line tools</FieldLegend>
-            <FieldDescription>Leave a path empty to search your PATH and common install folders.</FieldDescription>
-            <FieldGroup className="gap-4">
-              {CLI_PROVIDERS.map((item) => (
-                <Field key={item.id}>
-                  <FieldLabel htmlFor={`agent-${item.id}`}>
-                    {item.label}
-                    {available.get(item.id) ? <span className="text-muted-foreground font-normal">· found</span> : null}
-                  </FieldLabel>
-                  <Input
-                    id={`agent-${item.id}`}
-                    value={cliPaths[item.id]}
-                    onChange={(event) => setCliPaths((current) => ({ ...current, [item.id]: event.target.value }))}
-                    placeholder="Auto-detect"
-                    spellCheck={false}
-                  />
-                </Field>
-              ))}
+            <FieldDescription>
+              Each tool runs in an empty folder, so it never reads your projects. With Auto-detect, a tool that is
+              signed out or fails is skipped for the next one.
+            </FieldDescription>
+            <FieldGroup className="gap-5">
+              {CLI_PROVIDERS.map((item) => {
+                const details = byId.get(item.id);
+                const installs = details?.installs ?? [];
+                const check = checks[item.id];
+                return (
+                  <Field key={item.id} className="gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <FieldLabel htmlFor={`agent-${item.id}`}>{item.label}</FieldLabel>
+                      <CheckBadge available={Boolean(details?.available)} check={check} />
+                      {details?.available ? (
+                        <div className="ml-auto flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={checking === item.id}
+                            onClick={() => runCheck(item.id)}
+                          >
+                            {checking === item.id ? "Checking…" : "Check"}
+                          </Button>
+                          {details.canSignIn ? (
+                            <Button
+                              size="sm"
+                              variant={check?.signedIn === false ? "default" : "ghost"}
+                              disabled={signIn.isPending}
+                              onClick={() => signIn.mutate(item.id)}
+                            >
+                              Sign in
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    {details?.path ? (
+                      <FieldDescription className="break-all">
+                        Uses {details.version || "unknown version"} · {details.path}
+                      </FieldDescription>
+                    ) : null}
+                    {installs.length > 1 ? (
+                      <Select
+                        value={cliPaths[item.id] || NEWEST}
+                        onValueChange={(value) =>
+                          setCliPaths((current) => ({ ...current, [item.id]: value === NEWEST ? "" : value }))
+                        }
+                      >
+                        <SelectTrigger id={`agent-${item.id}`} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NEWEST}>Newest copy (automatic)</SelectItem>
+                          {installs.map((copy) => (
+                            <SelectItem key={copy.path} value={copy.path}>
+                              {copy.version || "unknown version"} · {copy.path}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`agent-${item.id}`}
+                        value={cliPaths[item.id]}
+                        onChange={(event) => setCliPaths((current) => ({ ...current, [item.id]: event.target.value }))}
+                        placeholder={details?.available ? "Found automatically" : "Not found · enter a path"}
+                        spellCheck={false}
+                      />
+                    )}
+                    {check && !check.ok ? <FieldDescription className="text-destructive">{check.message}</FieldDescription> : null}
+                  </Field>
+                );
+              })}
             </FieldGroup>
           </FieldSet>
           <FieldSet>
@@ -180,4 +240,12 @@ export function AgentSheet({
 
 function pickPaths(paths: AgentPaths): Record<CliId, string> {
   return { claude: paths.claude, codex: paths.codex, gemini: paths.gemini, opencode: paths.opencode };
+}
+
+function CheckBadge({ available, check }: { available: boolean; check: AgentCheck | undefined }) {
+  if (!available) return <Badge variant="outline">Not found</Badge>;
+  if (!check) return <Badge variant="secondary">Found</Badge>;
+  if (check.ok) return <Badge variant="secondary">Signed in</Badge>;
+  if (check.signedIn === false) return <Badge variant="destructive">Signed out</Badge>;
+  return <Badge variant="destructive">Not answering</Badge>;
 }

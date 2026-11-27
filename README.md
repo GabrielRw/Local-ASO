@@ -2,7 +2,7 @@
 
 Local ASO Tracker is an open-source, local-first App Store keyword rank tracker with a Python CLI and a browser dashboard. Track multiple iOS apps across countries and iPhone/iPad search results, keep historical checks in SQLite, and export your data without a hosted ASO subscription.
 
-There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. Core rank tracking uses Apple’s public iTunes Search API. An optional read-only Apple Ads integration can import campaign targeting, bids, and performance when local API OAuth credentials are supplied. The dashboard can render artwork and screenshots hosted by Apple. No Apple login is required; Apple Ads OAuth credentials are optional.
+There is no Local ASO account, cloud database, telemetry, analytics SDK, third-party ASO API, browser automation, or App Store HTML scraping. Core rank tracking uses Apple’s public iTunes Search API. An optional read-only Apple Ads integration can import campaign targeting, bids, and performance when local API OAuth credentials are supplied. The dashboard can render app artwork hosted by Apple. No Apple login is required; Apple Ads OAuth credentials are optional.
 
 > This tracks public search-result positions, not guaranteed on-device App Store ranks. Apple does not expose search volume or downloads. When the optional Apple Ads integration is set up, the Popularity column shows Apple Ads' own 5–100 search popularity for each keyword; otherwise it falls back to a local estimate marked with `~`. Difficulty is always a local estimate derived from matching-app ratings.
 
@@ -23,10 +23,9 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - Localized listing studio that generates reviewed Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New drafts with Codex/Claude, audits them against the selected ASO strategy, and pushes approved text metadata through App Store Connect.
 - Optional read-only Apple Ads reporting for current targeting keywords, bids, spend, taps, installs, and Apple keyword suggestions.
 - The first five returned apps for each keyword, displayed as Apple artwork with hover/focus names.
-- Public listing-health review, screenshot previews when available, and competitor comparison.
+- Public listing-health review and competitor comparison.
 - Three-step listing strategy audit with distribution goal, brand term, highlighted duplication checks, and title-order verification.
 - CLI commands for managing apps, keywords, storefronts, and tracking targets.
-- Screenshot studio: caption raw screenshots, translate captions with the local agent, render iPhone 6.9" and iPad 13" sets for every tracked locale, and replace them on an editable App Store Connect version.
 - Country pricing: purchasing-power price suggestions for the app, in-app purchases, and subscriptions, reviewed per territory before they are pushed to App Store Connect.
 - CSV/JSON exports, a fastlane `deliver` metadata export, and a self-contained HTML report that can be opened offline.
 - SQLite persistence, idempotent setup, and optional scheduling through your operating system.
@@ -38,7 +37,6 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Niche research](#niche-research)
 - [App audits](#app-audits)
 - [Localized App Store listings](#localized-app-store-listings)
-- [Localized screenshots](#localized-screenshots)
 - [Country pricing](#country-pricing)
 - [Competitor keyword matrix](#competitor-keyword-matrix)
 - [Apple Ads reporting](#apple-ads-reporting)
@@ -50,7 +48,7 @@ There is no Local ASO account, cloud database, telemetry, analytics SDK, third-p
 - [Exports and report](#exports-and-report)
 - [Scheduling](#local-scheduling), [backup](#backup-and-restore), and [troubleshooting](#troubleshooting)
 - [Development](#development)
-- [Desktop app (macOS)](#desktop-app-macos)
+- [Desktop app (macOS)](#desktop-app-macos) and [releasing](#releasing)
 
 ## Quick start
 
@@ -112,7 +110,7 @@ The sidebar holds the app switcher (add or remove apps from its menu), the app v
 
 1. **Audit** (start here). Run a 0–100 audit for the selected storefront: discovery by your local AI (Claude, Codex, Gemini, OpenCode, or Ollama), a native-language review, Apple rank checks, and an editor pass that keeps only evidence-backed findings. Recommended keywords are sorted by opportunity and can be tracked in one click; searches for competitor app names are listed separately as Apple Ads keywords. **All markets** shows the latest audit per storefront. **AI agent** sets CLI paths, the Ollama model, and tests the connection.
 2. **Keywords.** Top 10 / Top 50 / average-rank cards with 7- and 30-day trends (click for history), the sortable rankings table (popularity, difficulty, Top 5 apps, change, signal), **Run check** for stale targets, **Add keywords** (several storefronts and devices at once, with an optional localized preview), a per-keyword history chart, the overall rank trend, and “Losing to”. Click a Top 5 icon to add that app to Competitors.
-3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, screenshots Apple returns, the localization studio that drafts, reviews, and pushes localized metadata to an editable App Store Connect version, the screenshot studio, and purchasing-power pricing.
+3. **Optimize.** The listing coverage wizard (goal, brand term, then name, subtitle, and keyword field with live highlighting of repeated and brand words), the strategy audit score, the localization studio that drafts, previews, reviews, and pushes localized metadata to an editable App Store Connect version, and purchasing-power pricing.
 4. **Competitors.** The keyword-by-app rank matrix with **Refresh rankings**, plus a side-by-side public listing comparison.
 5. **Paid search.** Read-only Apple Ads: account setup, 30-day spend and installs, campaigns, keywords by country, and Apple's keyword suggestions with their measured popularity.
 6. **Niche research.** Brainstorm a keyword board for an idea that is not tied to an app yet, then check it across storefronts.
@@ -181,7 +179,7 @@ Audit runs and their country findings, recommended keywords, Apple evidence, pro
 
 ## Localized App Store listings
 
-**Listing health → Listing localization** turns one confirmed source listing into localized App Store text metadata. The first release covers Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New. It does not replace screenshots, previews, icons, or other media.
+**Listing health → Listing localization** turns one confirmed source listing into localized App Store text metadata. The first release covers Name, Subtitle, Keyword field, Description, Promotional Text, and What’s New. It never touches media such as icons or app previews. Each draft can be previewed as a store page before you approve and push it.
 
 1. Choose the main listing storefront. Its App Store locale is the source. Countries that share a target locale are generated once, so Mexico and Ecuador both map to the Spanish (Mexico) localization.
 2. Select any number of target countries and choose Auto-detect, Codex, or Claude. The agent receives the source fields, brand term, distribution goal, and relevant App Store Audit phrases. It must return all six text fields in the target language.
@@ -209,18 +207,6 @@ chmod 600 ~/.local-aso-tracker/app-store-connect/AuthKey_XXXXXXXXXX.p8
 5. In the dashboard, enter the Issuer ID, Key ID, and private-key path, save, and choose **Test connection**.
 
 The private key is read only by the local Python backend. It is never returned by the API, rendered in the browser, written to logs, or included in exports. A group- or world-readable key is rejected. The app bundle ID configured in Local ASO must be visible to the API key. If no App Store Connect credentials are configured, localization generation falls back to the public App Store listing for the source country; private remote metadata is not accessed.
-
-## Localized screenshots
-
-**Optimize → Screenshot studio** turns raw app captures into captioned App Store screenshots for each locale you track.
-
-1. **Import** up to 10 PNG or JPEG captures. They are stored under `~/.local-aso-tracker/screenshots/<app>/` and never leave the Mac unless you upload them.
-2. **Caption** each screenshot with a headline and an optional subline in the main caption language, or choose **Draft main captions** to have the local agent write them from your listing.
-3. **Translate** the captions into every tracked locale with the local agent. Captions you wrote or edited yourself are never overwritten.
-4. **Render all** draws each screenshot on a canvas in the dashboard at App Store Connect's required sizes: iPhone 6.9" (1320 x 2868) and iPad 13" (2064 x 2752). The template is a colour gradient, the caption, and the screenshot with rounded corners, without device frames. System fonts shape every script, including right-to-left Arabic and Hebrew and CJK.
-5. **Upload to App Store Connect** lists every locale and device set with its screenshot count before anything is sent. Each chosen set on the editable App Store version is replaced: the old screenshots are deleted, then the new ones are reserved, uploaded to Apple's upload URLs, committed with a checksum, and checked until Apple has processed them. A locale that fails is reported and logged without stopping the others. Upload needs a version in an editable state and an existing localization for that locale (push its listing text first).
-
-Rendered files are also written by the fastlane export as `screenshots/<locale>/<NN>_<device>.png`.
 
 ## Country pricing
 
@@ -538,7 +524,7 @@ Localization is deterministic and runs locally. It supports a curated astrology 
 
 The visual design uses an app rail, compact app summary, tabbed work areas, rank tables, health breakdowns, and side-by-side comparison patterns inspired by modern ASO dashboards. It uses original Local ASO Tracker branding and no third-party frontend assets or framework.
 
-Public Apple fields such as title, description, screenshot availability, ratings, release freshness, and localization count remain available as informational listing signals, but they do not contribute to the strategy score. Screenshot URLs are previewed when returned; otherwise the UI links to the App Store for manual verification and does not claim the listing lacks screenshots.
+Public Apple fields such as title, description, ratings, release freshness, and localization count remain available as informational listing signals, but they do not contribute to the strategy score.
 
 The numeric score remains hidden until the user saves a Keyword coverage audit and is then calculated only from that strategy audit. Up to 70 points come from avoiding repeated meaningful words across Name, Subtitle, and Keywords; each extra use reduces the repetition component by 15 points. Up to 30 points come from goal-specific title ordering. The audit ignores common connecting words and treats punctuation, accents, and case as non-distinguishing. Title ordering follows the selected strategy:
 
@@ -629,7 +615,6 @@ Migrations are applied automatically on initialization and dashboard launch. Ear
 - **Malformed response:** Apple returned content outside the validated `resultCount`/`results` contract. The failure is stored without dumping the payload.
 - **`>200` despite a device result:** the public API can differ from device search and may return fewer than 200 items.
 - **Custom data location seems empty:** confirm that `ASO_DATA_DIR` is identical for initialization and later commands.
-- **Screenshots are unavailable:** Apple sometimes omits screenshot URLs. Use the App Store verification link; unavailable media is not scored as zero.
 - **No Apple Ads accounts found:** confirm that the signed client secret is unexpired, owner-readable only, and belongs to an Apple Ads user with API access.
 - **Apple Ads empty for a market:** choose the correct storefront/device and run **Sync Apple Ads**; Apple returns only report rows with data for that completed-day window.
 
@@ -694,13 +679,57 @@ Before committing frontend changes, run `pnpm --dir frontend typecheck`, `lint`,
 
 The Mac app wraps the same dashboard. On launch it starts the bundled server on a free local port, waits for it, and opens the dashboard in its own window; quitting stops the server cleanly. It uses the same data folder as the CLI (`~/.local-aso-tracker`), so your apps and history appear in both. External links (App Store pages) open in your default browser. Local AI features use the Claude, Codex, Gemini, or OpenCode CLI installed on your Mac, or Ollama; the app also looks in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` because apps launched from the Dock don't inherit your shell `PATH`. Set an explicit path under **Audit → AI agent** if needed.
 
+### Licence
+
+The source is MIT and free; the CLI and the dashboard run from a checkout are never limited. The signed Mac app is free for research, rank tracking, audits, and local AI. A **$9 lifetime licence** unlocks writing to App Store Connect from the app: listing pushes and price changes. Buy it from **Settings → Licence & updates**, then paste the key shown after checkout. Keys are checked on your Mac; nothing is sent anywhere. `aso licence status|activate|remove` does the same from the terminal.
+
+### Updates
+
+At launch the app checks this repository's GitHub Releases for a newer version. Updates are signed; the app installs one only after you agree, and only if its signature matches. Turn the check off under **Settings → Licence & updates**. This is the only request the app makes that isn't to Apple or your own Ollama.
+
+### Building
+
 Build it (needs uv, Node + pnpm, Rust, and Xcode command line tools):
 
 ```bash
 ./scripts/build-macos.sh
 ```
 
-The app and DMG land in `desktop/src-tauri/target/release/bundle/`. Local builds are ad-hoc signed, so macOS asks you to confirm the first launch (right-click → Open). To distribute it, sign with a Developer ID and notarize: set `APPLE_SIGNING_IDENTITY` (and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` for notarization) before running the script. Apple Silicon (arm64) only for now.
+The app and DMG land in `desktop/src-tauri/target/release/bundle/`. Local builds are ad-hoc signed, so macOS asks you to confirm the first launch (right-click → Open). Apple Silicon (arm64) only for now.
+
+## Releasing
+
+One-time setup:
+
+1. **Developer ID certificate.** In the Apple Developer account (Account Holder), create a **Developer ID Application** certificate and install it in your keychain.
+2. **Notarization key.** Create an App Store Connect API key (Developer role) and keep the `.p8` file outside the repository.
+3. **Licence signing key.** Run `uv run python scripts/generate-licence-keypair.py ~/Secure/local-aso-licence.pem` and paste the printed public key into `PUBLIC_KEY_B64` in `src/local_aso_tracker/licensing.py` and `LICENCE_PUBLIC_KEY` in `licence-server/wrangler.toml`.
+4. **Updater signing key.** Run `pnpm --dir desktop tauri signer generate -w ~/Secure/local-aso-updater.key` and paste the public key into `plugins.updater.pubkey` in `desktop/src-tauri/tauri.conf.json`.
+5. **Stripe.** Create a $9 one-time Price and a Payment Link for it. Under the link's confirmation page, choose "Don't show confirmation page" and redirect to `https://<your worker>/key?session_id={CHECKOUT_SESSION_ID}`. Put the Payment Link URL in `BUY_URL` in `licensing.py`.
+6. **Key page.** Deploy the Worker in `licence-server/`:
+
+   ```bash
+   cd licence-server && pnpm install
+   pnpm exec wrangler secret put STRIPE_SECRET_KEY
+   pnpm exec wrangler secret put STRIPE_PRICE_ID
+   pnpm exec wrangler secret put LICENCE_PRIVATE_KEY < ~/Secure/local-aso-licence.pem
+   pnpm run deploy
+   ```
+
+   It asks Stripe whether the session is paid for that price and shows the signed key; reopening the link shows the same key. It stores nothing. Use `aso licence mint --private-key … --email … --id …` for manual or replacement keys.
+
+Each release:
+
+```bash
+scripts/bump-version.sh 0.7.0
+git commit -am "chore: release 0.7.0"
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export APPLE_API_KEY=… APPLE_API_ISSUER=… APPLE_API_KEY_PATH=~/Secure/AuthKey_….p8
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/Secure/local-aso-updater.key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=…
+scripts/release-macos.sh "What changed in this version"
+```
+
+The script refuses to run until the keys, buy URL, and certificate are in place. It signs every binary in the bundled server with the hardened runtime, has Tauri sign and notarize the app, verifies it with `codesign`, `spctl`, and `stapler`, and writes the DMG, the signed update archive, and `latest.json` to `bundle/release-v<version>/`. It publishes nothing: it prints the `git tag` and `gh release create` commands to run once you've checked the build.
 
 ## License
 

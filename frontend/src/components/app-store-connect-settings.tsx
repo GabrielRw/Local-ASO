@@ -16,7 +16,7 @@ export function connectionReady(connection: AppStoreConnectStatus | undefined): 
 }
 
 /**
- * App Store Connect API key settings, shared by the localization, screenshot, and
+ * App Store Connect API key settings, shared by the localization and
  * pricing studios. Only the key's path is stored; its contents never reach the browser.
  */
 export function AppStoreConnectSettings({

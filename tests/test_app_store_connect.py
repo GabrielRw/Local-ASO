@@ -409,7 +409,7 @@ def test_empty_delete_responses_are_ok_and_versions_are_selectable(tmp_path: Pat
         return httpx.Response(204)
 
     client = _client(settings, handler)
-    assert client._request("DELETE", "/appScreenshots/1") == {}
+    assert client._request("DELETE", "/things/1") == {}
     client._request("GET", "/appPricePoints/x/equalizations", version="v3")
     assert seen[-1].startswith("https://api.appstoreconnect.apple.com/v3/")
     with pytest.raises(AppStoreConnectError, match="non-App Store Connect URL"):
@@ -436,29 +436,3 @@ def test_snapshot_prefers_the_editable_version_and_app_info() -> None:
         {"id": "next-info", "attributes": {"state": "PREPARE_FOR_SUBMISSION"}},
     ]
     assert _pick_app_info(infos)["id"] == "next-info"
-
-
-def test_uploads_only_go_to_apple_hosts_without_the_api_token(tmp_path: Path) -> None:
-    settings, _ = _credentials(tmp_path)
-    uploads: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        uploads.append(request)
-        return httpx.Response(200)
-
-    client = _client(settings, handler)
-    client._upload_part(
-        url="https://store-032.blobstore.apple.com/upload?token=x",
-        method="PUT",
-        headers={"Content-Type": "image/png"},
-        data=b"png-bytes",
-    )
-    assert uploads[0].content == b"png-bytes"
-    assert "authorization" not in {key.lower() for key in uploads[0].headers}
-    for url in (
-        "http://store.apple.com/x",
-        "https://apple.com.evil.example/x",
-        "https://example.com/x",
-    ):
-        with pytest.raises(AppStoreConnectError, match="non-Apple URL"):
-            client._upload_part(url=url, method="PUT", headers={}, data=b"")

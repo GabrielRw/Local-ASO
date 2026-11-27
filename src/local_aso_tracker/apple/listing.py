@@ -28,8 +28,6 @@ class AppleListing(BaseModel):
     artwork_url: str | None = Field(default=None, alias="artworkUrl100")
     genre: str | None = Field(default=None, alias="primaryGenreName")
     description: str = ""
-    screenshot_urls: list[str] = Field(default_factory=list, alias="screenshotUrls")
-    ipad_screenshot_urls: list[str] = Field(default_factory=list, alias="ipadScreenshotUrls")
     average_rating: float | None = Field(default=None, alias="averageUserRating")
     rating_count: int = Field(default=0, alias="userRatingCount")
     current_version_release_date: datetime | None = Field(
@@ -40,10 +38,6 @@ class AppleListing(BaseModel):
     file_size_bytes: int | None = Field(default=None, alias="fileSizeBytes")
     formatted_price: str | None = Field(default=None, alias="formattedPrice")
     minimum_os_version: str | None = Field(default=None, alias="minimumOsVersion")
-
-    @property
-    def screenshot_count(self) -> int:
-        return len(self.screenshot_urls) + len(self.ipad_screenshot_urls)
 
 
 class AppleLookupResponse(BaseModel):

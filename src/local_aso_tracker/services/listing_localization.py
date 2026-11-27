@@ -166,8 +166,7 @@ def generate_localization_drafts(
         app = session.scalar(select(App).where(App.apple_app_id == app_id))
         if app is None:
             raise ValueError(f"unknown app ID: {app_id}")
-        if not app.bundle_id:
-            raise ValueError("this app is missing its bundle ID")
+        # Drafts are generated locally; the bundle ID is only needed to push them.
         active_codes = set(
             session.scalars(select(Storefront.country_code).where(Storefront.active.is_(True)))
         )
@@ -337,7 +336,10 @@ def push_localization(
             raise ValueError("approve this localization before pushing it")
         app = session.get(App, item.app_id)
         if app is None or not app.bundle_id:
-            raise ValueError("this app is missing its bundle ID")
+            raise ValueError(
+                "this app's bundle ID isn't known yet; open it once with an internet "
+                "connection so Apple's listing can supply it, then push again"
+            )
         fields = _json_object(item.fields)
         source_fields = _json_object(item.source_fields)
         target_locale = item.target_locale

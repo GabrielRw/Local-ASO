@@ -184,8 +184,10 @@ export function AppSidebar() {
                 <DropdownMenuItem onSelect={() => dialogs.open("background-sync")}>Background checks…</DropdownMenuItem>
                 {licence.data?.desktop ? (
                   <DropdownMenuItem onSelect={() => dialogs.open("licence")}>
-                    Licence &amp; updates…
-                    {licence.data.licensed ? null : <span className="text-muted-foreground ml-auto text-xs">Free</span>}
+                    {licence.data.paidEdition ? "Licence & updates…" : "Updates…"}
+                    {licence.data.paidEdition && !licence.data.licensed ? (
+                      <span className="text-muted-foreground ml-auto text-xs">Free</span>
+                    ) : null}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuSeparator />

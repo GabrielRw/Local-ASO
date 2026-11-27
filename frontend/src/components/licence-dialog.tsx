@@ -40,19 +40,21 @@ export function LicenceDialog({ open, onClose }: { open: boolean; onClose: () =>
     onError: (error) => toast.error(error.message),
   });
   const data = licence.data;
+  const paid = data?.paidEdition ?? false;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Licence</DialogTitle>
+          <DialogTitle>{paid ? "Licence" : "Updates"}</DialogTitle>
           <DialogDescription>
-            Research, tracking, audits, and local AI are free. A {data?.price ?? "$9"} lifetime licence unlocks writing
-            to App Store Connect: listing pushes and price changes.
+            {paid
+              ? `Research, tracking, audits, and local AI are free. A ${data?.price ?? "$9"} lifetime licence unlocks writing to App Store Connect: listing pushes and price changes.`
+              : "Local ASO is free, with every feature included."}
           </DialogDescription>
         </DialogHeader>
 
-        {data?.licensed ? (
+        {!paid ? null : data?.licensed ? (
           <div className="flex items-start gap-3 rounded-lg border p-4">
             <BadgeCheck className="text-emerald-600 dark:text-emerald-400 mt-0.5 size-5 shrink-0" aria-hidden />
             <div className="grid gap-0.5 text-sm">

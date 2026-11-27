@@ -679,13 +679,13 @@ Before committing frontend changes, run `pnpm --dir frontend typecheck`, `lint`,
 
 The Mac app wraps the same dashboard. On launch it starts the bundled server on a free local port, waits for it, and opens the dashboard in its own window; quitting stops the server cleanly. It uses the same data folder as the CLI (`~/.local-aso-tracker`), so your apps and history appear in both. External links (App Store pages) open in your default browser. Local AI features use the Claude, Codex, Gemini, or OpenCode CLI installed on your Mac, or Ollama; the app also looks in `~/.local/bin`, `/opt/homebrew/bin`, and `/usr/local/bin` because apps launched from the Dock don't inherit your shell `PATH`. Set an explicit path under **Audit → AI agent** if needed.
 
-### Licence
+### Free
 
-The source is MIT and free; the CLI and the dashboard run from a checkout are never limited. The signed Mac app is free for research, rank tracking, audits, and local AI. A **$9 lifetime licence** unlocks writing to App Store Connect from the app: listing pushes and price changes. Buy it from **Settings → Licence & updates**, then paste the key shown after checkout. Keys are checked on your Mac; nothing is sent anywhere. `aso licence status|activate|remove` does the same from the terminal.
+Local ASO is free: the source is MIT, and the Mac app has every feature with no licence or account. The repository keeps an optional, dormant paid-edition mechanism (offline licence keys and a Stripe key page in `licence-server/`); it is switched off by `PAID_EDITION = False` in `src/local_aso_tracker/licensing.py`, which also hides all licence UI.
 
 ### Updates
 
-At launch the app checks this repository's GitHub Releases for a newer version. Updates are signed; the app installs one only after you agree, and only if its signature matches. Turn the check off under **Settings → Licence & updates**. This is the only request the app makes that isn't to Apple or your own Ollama.
+At launch the app checks this repository's GitHub Releases for a newer version. Updates are signed; the app installs one only after you agree, and only if its signature matches. Turn the check off under **Settings → Updates**. This is the only request the app makes that isn't to Apple or your own Ollama.
 
 ### Building
 
@@ -703,10 +703,10 @@ One-time setup:
 
 1. **Developer ID certificate.** In the Apple Developer account (Account Holder), create a **Developer ID Application** certificate and install it in your keychain.
 2. **Notarization key.** Create an App Store Connect API key (Developer role) and keep the `.p8` file outside the repository.
-3. **Licence signing key.** Run `uv run python scripts/generate-licence-keypair.py ~/Secure/local-aso-licence.pem` and paste the printed public key into `PUBLIC_KEY_B64` in `src/local_aso_tracker/licensing.py` and `LICENCE_PUBLIC_KEY` in `licence-server/wrangler.toml`.
+3. **Licence signing key** (paid edition only; skip while the app is free). Run `uv run python scripts/generate-licence-keypair.py ~/Secure/local-aso-licence.pem` and paste the printed public key into `PUBLIC_KEY_B64` in `src/local_aso_tracker/licensing.py` and `LICENCE_PUBLIC_KEY` in `licence-server/wrangler.toml`.
 4. **Updater signing key.** Run `pnpm --dir desktop tauri signer generate -w ~/Secure/local-aso-updater.key` and paste the public key into `plugins.updater.pubkey` in `desktop/src-tauri/tauri.conf.json`.
-5. **Stripe.** Create a $9 one-time Price and a Payment Link for it. Under the link's confirmation page, choose "Don't show confirmation page" and redirect to `https://<your worker>/key?session_id={CHECKOUT_SESSION_ID}`. Put the Payment Link URL in `BUY_URL` in `licensing.py`.
-6. **Key page.** Deploy the Worker in `licence-server/`:
+5. **Stripe** (paid edition only). Create a $9 one-time Price and a Payment Link for it. Under the link's confirmation page, choose "Don't show confirmation page" and redirect to `https://<your worker>/key?session_id={CHECKOUT_SESSION_ID}`. Put the Payment Link URL in `BUY_URL` in `licensing.py`.
+6. **Key page** (paid edition only). Deploy the Worker in `licence-server/`:
 
    ```bash
    cd licence-server && pnpm install
@@ -729,7 +729,7 @@ export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/Secure/local-aso-updater.key)" TAURI_S
 scripts/release-macos.sh "What changed in this version"
 ```
 
-The script refuses to run until the keys, buy URL, and certificate are in place. It signs every binary in the bundled server with the hardened runtime, has Tauri sign and notarize the app, verifies it with `codesign`, `spctl`, and `stapler`, and writes the DMG, the signed update archive, and `latest.json` to `bundle/release-v<version>/`. It publishes nothing: it prints the `git tag` and `gh release create` commands to run once you've checked the build.
+The script refuses to run until the certificate and updater key are in place (and, with the paid edition on, the licence key and buy URL). It signs every binary in the bundled server with the hardened runtime, has Tauri sign and notarize the app, verifies it with `codesign`, `spctl`, and `stapler`, and writes the DMG, the signed update archive, and `latest.json` to `bundle/release-v<version>/`. It publishes nothing: it prints the `git tag` and `gh release create` commands to run once you've checked the build.
 
 ## License
 

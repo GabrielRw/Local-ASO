@@ -29,6 +29,8 @@ def keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ed25519PrivateKey:
     monkeypatch.delenv("LOCAL_ASO_DESKTOP", raising=False)
     key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(VECTOR["seedHex"]))
     monkeypatch.setattr(licensing, "PUBLIC_KEY_B64", VECTOR["publicKey"])
+    # The gate tests exercise the paid edition; the shipped default is free.
+    monkeypatch.setattr(licensing, "PAID_EDITION", True)
     return key
 
 
@@ -165,6 +167,18 @@ def test_every_version_number_matches() -> None:
     package = json.loads((ROOT / "desktop/package.json").read_text())["version"]
     assert {pyproject, tauri, cargo, package, __version__} == {__version__}
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
+
+
+def test_the_free_edition_never_gates_and_hides_the_licence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ASO_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LOCAL_ASO_DESKTOP", "1")
+    assert licensing.PAID_EDITION is False
+    licensing.require("listing-push")
+    licensing.require("price-push")
+    status = licensing.status()
+    assert status["paidEdition"] is False and status["required"] is False
 
 
 def test_desktop_server_stops_when_the_app_disappears() -> None:

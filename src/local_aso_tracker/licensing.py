@@ -5,9 +5,11 @@ and of its Ed25519 signature. Keys are signed by the Stripe key page
 (``licence-server/``) or by ``aso licence mint``, and verified here with the public key
 below; nothing is sent anywhere to check them.
 
-Only the desktop build is gated (the Tauri shell sets ``LOCAL_ASO_DESKTOP=1``); the
-open-source CLI and the dashboard run from a checkout are never limited. Without a
-licence, everything works except writes to App Store Connect.
+Local ASO is free: ``PAID_EDITION`` is off, so nothing is gated and the licence UI is
+hidden. The code stays so a paid Mac edition can be switched on later. When it is on,
+only the desktop build is gated (the Tauri shell sets ``LOCAL_ASO_DESKTOP=1``); the
+open-source CLI and the dashboard run from a checkout are never limited, and without a
+licence everything works except writes to App Store Connect.
 """
 
 from __future__ import annotations
@@ -25,6 +27,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from local_aso_tracker.config import data_dir
+
+# The single switch for the paid Mac edition. False: the app is 100% free.
+PAID_EDITION = False
 
 PREFIX = "LASO1-"
 PRODUCT = "desktop-lifetime"
@@ -161,8 +166,9 @@ def status() -> dict[str, object]:
     licence = current()
     return {
         "desktop": is_desktop(),
+        "paidEdition": PAID_EDITION,
         "licensed": licence is not None,
-        "required": is_desktop() and licence is None,
+        "required": PAID_EDITION and is_desktop() and licence is None,
         "email": licence.email if licence else None,
         "issued": licence.issued if licence else None,
         "buyUrl": BUY_URL or None,
@@ -172,9 +178,9 @@ def status() -> dict[str, object]:
 
 
 def require(feature: str) -> None:
-    """Refuse a gated action in the unlicensed desktop app (no-op everywhere else)."""
+    """Refuse a gated action in the unlicensed paid desktop app (no-op everywhere else)."""
 
-    if is_desktop() and current() is None:
+    if PAID_EDITION and is_desktop() and current() is None:
         action = GATED_FEATURES.get(feature, "This action")
         raise LicenceRequired(
             f"{action} needs a Local ASO licence ({PRICE_LABEL}, lifetime). "

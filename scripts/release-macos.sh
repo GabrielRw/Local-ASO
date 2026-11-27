@@ -30,10 +30,13 @@ CONF="$ROOT/desktop/src-tauri/tauri.conf.json"
 VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$CONF")"
 PUBKEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["plugins"]["updater"]["pubkey"])' "$CONF")"
 [[ -n "$PUBKEY" ]] || fail "set plugins.updater.pubkey in tauri.conf.json (pnpm --dir desktop tauri signer generate)"
-grep -qE '^PUBLIC_KEY_B64 = "[A-Za-z0-9+/=]{40,}"' "$ROOT/src/local_aso_tracker/licensing.py" \
-  || fail "set PUBLIC_KEY_B64 in licensing.py (scripts/generate-licence-keypair.py)"
-grep -qE '^BUY_URL = "https://' "$ROOT/src/local_aso_tracker/licensing.py" \
-  || fail "set BUY_URL in licensing.py to your Stripe Payment Link"
+LICENSING="$ROOT/src/local_aso_tracker/licensing.py"
+if grep -qE '^PAID_EDITION = True' "$LICENSING"; then
+  grep -qE '^PUBLIC_KEY_B64 = "[A-Za-z0-9+/=]{40,}"' "$LICENSING" \
+    || fail "set PUBLIC_KEY_B64 in licensing.py (scripts/generate-licence-keypair.py)"
+  grep -qE '^BUY_URL = "https://' "$LICENSING" \
+    || fail "set BUY_URL in licensing.py to your Stripe Payment Link"
+fi
 if git -C "$ROOT" rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
   fail "tag v$VERSION already exists; run scripts/bump-version.sh first"
 fi

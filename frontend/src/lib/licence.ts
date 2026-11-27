@@ -4,6 +4,8 @@ import { apiGet } from "@/lib/api";
 /** /api/licence: the Mac app's licence and shell settings (src/local_aso_tracker/licensing.py). */
 export interface LicenceStatus {
   desktop: boolean;
+  /** False while Local ASO is free: no licence UI and nothing is locked. */
+  paidEdition: boolean;
   licensed: boolean;
   required: boolean;
   email: string | null;

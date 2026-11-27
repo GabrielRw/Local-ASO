@@ -282,7 +282,7 @@ export function ListingCoverage({
                   value={brand}
                   maxLength={255}
                   required
-                  placeholder="AstroLingo"
+                  placeholder="Your brand name"
                   onChange={(event) => setBrand(event.target.value)}
                 />
                 <FieldDescription>Used only to verify title ordering. Punctuation and case are ignored.</FieldDescription>

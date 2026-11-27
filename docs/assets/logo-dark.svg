@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 240" width="1080" height="240" role="img" aria-label="Local ASO">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262626"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(20 20) scale(0.2)">
+    <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#bg)" stroke="#3f3f46" stroke-width="12"/>
+    <rect x="300" y="552" width="104" height="196" rx="34" fill="#fafafa" opacity="0.55"/>
+    <rect x="460" y="430" width="104" height="318" rx="34" fill="#fafafa" opacity="0.78"/>
+    <rect x="620" y="276" width="104" height="472" rx="34" fill="#fafafa"/>
+  </g>
+  <text x="250" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="96" font-weight="700" letter-spacing="-2" fill="#fafafa">Local ASO</text>
+  <text x="254" y="186" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="30" font-weight="500" fill="#a3a3a3">App Store keyword research that stays on your Mac</text>
+</svg>

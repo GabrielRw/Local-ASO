@@ -3,7 +3,7 @@
 #
 # Usage: scripts/release-macos.sh "Release notes, one line or Markdown"
 #
-# Needs (see README "Releasing"):
+# Needs (see docs/GUIDE.md "Releasing"):
 #   APPLE_SIGNING_IDENTITY   "Developer ID Application: Name (TEAMID)"
 #   APPLE_API_KEY, APPLE_API_ISSUER, APPLE_API_KEY_PATH   notarization (App Store Connect API key)
 #   TAURI_SIGNING_PRIVATE_KEY (+ TAURI_SIGNING_PRIVATE_KEY_PASSWORD)   updater signature

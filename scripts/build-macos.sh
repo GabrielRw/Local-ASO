@@ -8,7 +8,7 @@
 # "Developer ID Application" certificate. Then every binary in the frozen server is
 # signed with the hardened runtime first (Tauri doesn't sign files in Resources, and
 # notarization rejects unsigned nested code), and Tauri signs and notarizes the app
-# with APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_PATH. See README "Releasing".
+# with APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_PATH. See docs/GUIDE.md "Releasing".
 #
 # Extra arguments are passed to `tauri build` (scripts/release-macos.sh uses this).
 set -euo pipefail

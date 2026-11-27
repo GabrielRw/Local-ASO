@@ -1,0 +1,19 @@
+{
+  "name": "local-aso-licence-server",
+  "private": true,
+  "version": "0.6.0",
+  "type": "module",
+  "description": "Stripe Checkout success page that signs Local ASO licence keys (Cloudflare Worker).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "~5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.0.0"
+  }
+}

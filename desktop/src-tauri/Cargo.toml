@@ -1,6 +1,6 @@
 [package]
 name = "local-aso"
-version = "0.1.0"
+version = "0.6.0"
 description = "Local ASO desktop app"
 edition = "2021"
 publish = false
@@ -14,6 +14,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+serde_json = "1"
 libc = "0.2"
 
 [profile.release]

@@ -48,11 +48,6 @@ const FIELDS: Field[] = [
   { label: "Version", render: (app) => text(app.version) },
   { label: "Rating", render: rating },
   {
-    label: "Screenshots returned",
-    render: (app) =>
-      app.screenshotStatus === "available" ? <span className="tabular-nums">{app.screenshotCount}</span> : NOT_EXPOSED,
-  },
-  {
     label: "Description length",
     render: (app) =>
       app.descriptionLength != null ? (

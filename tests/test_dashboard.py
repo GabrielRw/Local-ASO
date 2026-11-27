@@ -134,8 +134,7 @@ def test_dashboard_bootstrap_uses_real_local_rank_data(dashboard: DashboardServi
     assert rankings[0]["topApps"][0]["averageRating"] == 4.8  # type: ignore[index]
     assert rankings[0]["topApps"][0]["ratingCount"] == 2_400_000  # type: ignore[index]
     assert payload["health"]["score"] is None  # type: ignore[index]
-    assert payload["listing"]["screenshotStatus"] == "available"  # type: ignore[index]
-    assert len(payload["listing"]["screenshots"]) == 5  # type: ignore[index]
+    assert "screenshots" not in payload["listing"]  # type: ignore[operator]
     assert payload["apps"][0]["artworkUrl"] == (  # type: ignore[index]
         "https://is1-ssl.mzstatic.com/6771773264/icon.png"
     )

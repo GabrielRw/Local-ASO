@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Bot, Play, Square } from "lucide-react";
+import { Bot, Play, RotateCcw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Page } from "@/components/page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,7 +16,8 @@ import { apiPost } from "@/lib/api";
 import { countryFlag, deviceName, formatDateTime, relativeDays } from "@/lib/format";
 import { useAudit, useCurrentBootstrap, useInvalidate } from "@/lib/queries";
 import { useSelection } from "@/lib/selection";
-import type { AuditLatest, AuditRun } from "@/lib/types";
+import { useAgentCheck, useAgentSignIn } from "@/lib/agent";
+import type { AgentCheck, AgentProvider, AuditLatest, AuditRun } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AgentSheet } from "./agent-sheet";
 import { CompetitorNameKeywords, DiscoverMore, FindingsCard, RecommendedKeywords, ScoreCard } from "./audit-results";
@@ -199,10 +200,14 @@ export function AuditPage() {
       ) : null}
 
       {run && country?.status === "error" && !active ? (
-        <Alert variant="destructive">
-          <AlertTitle>This audit needs a retry</AlertTitle>
-          <AlertDescription>{country.error ?? run.error ?? "The audit did not finish."}</AlertDescription>
-        </Alert>
+        <FailedAudit
+          key={run.id}
+          error={country.error ?? run.error ?? "The audit did not finish."}
+          when={run.completedAt ?? run.createdAt}
+          provider={failedProvider(run.provider, country.error ?? run.error, providers)}
+          retrying={start.isPending}
+          onRetry={() => start.mutate()}
+        />
       ) : null}
 
       {payload?.latestByCountry?.length ? (
@@ -303,5 +308,59 @@ function MarketsOverview({
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+/** Which tool to re-check: the one the run used, or the one its error names. */
+function failedProvider(used: string | null | undefined, error: string | null | undefined, providers: AgentProvider[]): AgentProvider | null {
+  const byId = new Map(providers.map((item) => [item.id, item]));
+  if (used && used !== "auto" && byId.has(used)) return byId.get(used) ?? null;
+  const text = (error ?? "").toLowerCase();
+  return providers.find((item) => text.includes(item.id) || text.includes(item.label.toLowerCase())) ?? providers.find((item) => item.available) ?? null;
+}
+
+function FailedAudit({
+  error,
+  when,
+  provider,
+  retrying,
+  onRetry,
+}: {
+  error: string;
+  when: string | null | undefined;
+  provider: AgentProvider | null;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const [check, setCheck] = useState<AgentCheck | null>(null);
+  const checker = useAgentCheck(setCheck);
+  const signIn = useAgentSignIn();
+  const fixed = check?.ok === true;
+  return (
+    <Alert variant={fixed ? "default" : "destructive"}>
+      <AlertTitle>{fixed ? `${provider?.label ?? "The AI tool"} works now` : "This audit needs a retry"}</AlertTitle>
+      <AlertDescription className="grid gap-3">
+        <p>
+          {fixed ? "The earlier failure is fixed. Run the audit again." : error}
+          {when ? <span className="text-muted-foreground"> · Failed {formatDateTime(when)}</span> : null}
+        </p>
+        {check && !check.ok ? <p>{check.message}</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={onRetry} disabled={retrying}>
+            <RotateCcw /> Retry audit
+          </Button>
+          {provider?.available ? (
+            <Button size="sm" variant="outline" onClick={() => checker.mutate(provider.id)} disabled={checker.isPending}>
+              {checker.isPending ? "Checking…" : `Check ${provider.label} again`}
+            </Button>
+          ) : null}
+          {provider?.canSignIn && check?.signedIn === false ? (
+            <Button size="sm" variant="outline" onClick={() => signIn.mutate(provider.id)} disabled={signIn.isPending}>
+              Sign in to {provider.label}
+            </Button>
+          ) : null}
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }

@@ -76,25 +76,6 @@ def assess_listing(
     else:
         description_score, description_detail = 2, "Description is very short."
 
-    screenshot_count = listing.screenshot_count
-    if screenshot_count >= 5:
-        screenshot_score, screenshot_detail = (
-            20,
-            f"{screenshot_count} screenshots returned by Apple.",
-        )
-    elif screenshot_count >= 3:
-        screenshot_score, screenshot_detail = (
-            15,
-            f"{screenshot_count} screenshots; consider a fuller set.",
-        )
-    elif screenshot_count:
-        screenshot_score, screenshot_detail = 8, f"Only {screenshot_count} screenshot(s) returned."
-    else:
-        screenshot_score, screenshot_detail = (
-            0,
-            "Apple's public iTunes API did not expose screenshot URLs. This signal is unknown.",
-        )
-
     if listing.rating_count >= 20 and (listing.average_rating or 0) >= 4.5:
         rating_score, rating_detail = 15, "Strong rating and review signal."
     elif listing.rating_count >= 5 and (listing.average_rating or 0) >= 4:
@@ -123,14 +104,6 @@ def assess_listing(
     public_items = [
         HealthItem("title", "Title", title_score, 20, title_detail),
         HealthItem("description", "Description", description_score, 20, description_detail),
-        HealthItem(
-            "screenshots",
-            "Screenshots",
-            screenshot_score,
-            20,
-            screenshot_detail,
-            available=screenshot_count > 0,
-        ),
         HealthItem("ratings", "Ratings", rating_score, 15, rating_detail),
         HealthItem("freshness", "Freshness", freshness_score, 15, freshness_detail),
         HealthItem("localization", "Localization", localization_score, 10, localization_detail),
@@ -140,11 +113,6 @@ def assess_listing(
         for item in sorted(public_items, key=lambda item: item.score / item.maximum)
         if item.available and item.score < item.maximum
     ]
-    if not screenshot_count:
-        public_suggestions.insert(
-            0,
-            "Verify screenshots on the App Store; Apple's public iTunes API did not expose them.",
-        )
     public_suggestions = public_suggestions[:4]
     if strategy is None:
         return ListingHealth(
@@ -227,9 +195,6 @@ def _suggestion(key: str) -> str:
         "description": (
             "Strengthen the description with a clear opening, benefits, and scannable "
             "feature sections."
-        ),
-        "screenshots": (
-            "Check screenshot availability and build a complete visual story for this storefront."
         ),
         "ratings": "Focus on a reliable in-app review prompt after positive user moments.",
         "freshness": (

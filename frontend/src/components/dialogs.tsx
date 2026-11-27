@@ -27,11 +27,12 @@ import {
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { BackgroundSyncDialog } from "@/components/background-sync-dialog";
+import { LicenceDialog } from "@/components/licence-dialog";
 import { OnboardingDialog } from "@/features/onboarding/onboarding-dialog";
 
 // App-wide dialogs that can be opened from the sidebar and from any view.
 
-type DialogName = "add-app" | "remove-app" | "setup" | "background-sync";
+type DialogName = "add-app" | "remove-app" | "setup" | "background-sync" | "licence";
 interface DialogState {
   name: DialogName | null;
   props: Record<string, unknown>;
@@ -68,6 +69,7 @@ export function DialogsProvider({ children }: { children: ReactNode }) {
       />
       <OnboardingDialog open={state.name === "setup"} onClose={close} />
       <BackgroundSyncDialog open={state.name === "background-sync"} onClose={close} />
+      <LicenceDialog open={state.name === "licence"} onClose={close} />
     </DialogsContext.Provider>
   );
 }

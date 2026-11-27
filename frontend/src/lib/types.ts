@@ -25,10 +25,32 @@ export interface Market {
   language: string;
 }
 
+export interface AgentInstall {
+  path: string;
+  version: string;
+}
+
 export interface AgentProvider {
   id: string;
   label: string;
   available: boolean;
+  /** CLI that will run (the chosen copy, else the newest found). */
+  path?: string | null;
+  version?: string | null;
+  /** Every copy of the CLI found on this Mac, newest first. */
+  installs?: AgentInstall[];
+  configuredPath?: string;
+  canSignIn?: boolean;
+}
+
+/** POST /api/agent/check: one tiny request through the same runner audits use. */
+export interface AgentCheck {
+  provider: string;
+  path: string | null;
+  version: string | null;
+  ok: boolean;
+  signedIn: boolean | null;
+  message: string;
 }
 
 export interface TopApp {
@@ -97,9 +119,6 @@ export interface Listing {
   artworkUrl: string | null;
   genre: string | null;
   description: string;
-  screenshots: string[];
-  screenshotCount: number;
-  screenshotStatus: string;
   averageRating: number | null;
   ratingCount: number | null;
   updatedAt: string | null;

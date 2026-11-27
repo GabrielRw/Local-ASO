@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import re
 import signal
 import subprocess
@@ -12,7 +13,7 @@ import sys
 import threading
 import time
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -25,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from local_aso_tracker import licensing
 from local_aso_tracker.apple.ads import AppleAdsError
 from local_aso_tracker.apple.app_store_connect import (
     AppStoreConnectClient,
@@ -42,6 +44,7 @@ from local_aso_tracker.config import (
     validate_device,
 )
 from local_aso_tracker.database import session_scope
+from local_aso_tracker.desktop import load_desktop_settings, save_desktop_settings
 from local_aso_tracker.models import (
     App,
     AppArtwork,
@@ -80,13 +83,16 @@ from local_aso_tracker.repositories.niches import (
     remove_niche_country,
 )
 from local_aso_tracker.repositories.onboarding import complete_onboarding, onboarding_completed
-from local_aso_tracker.services import background_sync, pricing, screenshots
+from local_aso_tracker.services import background_sync, pricing
 from local_aso_tracker.services.agent import (
     CLI_PROVIDER_IDS,
     AgentError,
+    check_provider,
     generate_keyword_translations,
     generate_keywords,
     ollama_models,
+    open_sign_in,
+    provider_payload,
     provider_status,
     test_provider,
     validate_ollama_url,
@@ -189,6 +195,12 @@ class DashboardService:
         )
         with self._cache_lock:
             self._listing_cache[key] = (time.monotonic(), value)
+        if value.bundle_id:
+            # Apps added before bundle IDs were stored get theirs from Apple's listing.
+            with session_scope() as session:
+                stored = session.scalar(select(App).where(App.apple_app_id == apple_app_id))
+                if stored is not None and not stored.bundle_id:
+                    stored.bundle_id = value.bundle_id
         return value
 
     def bootstrap(self, app_id: int | None, country: str | None) -> dict[str, object]:
@@ -287,7 +299,7 @@ class DashboardService:
                     for item in sorted(MARKETS.values(), key=lambda value: value.name)
                 ],
                 "agentProviders": [
-                    asdict(item)
+                    provider_payload(item)
                     for item in provider_status(
                         codex_path=settings.agent_codex_path,
                         claude_path=settings.agent_claude_path,
@@ -485,7 +497,7 @@ class DashboardService:
             )
         payload["appId"] = app_id
         payload["providers"] = [
-            asdict(item)
+            provider_payload(item)
             for item in provider_status(
                 codex_path=settings.agent_codex_path,
                 claude_path=settings.agent_claude_path,
@@ -605,6 +617,16 @@ class DashboardService:
             timeout=15.0,
         )
 
+    def check_agent_provider(self, body: dict[str, Any]) -> dict[str, object]:
+        """Is this AI tool installed, signed in, and answering? (one tiny request)"""
+
+        return check_provider(str(body.get("provider", "")))
+
+    def sign_in_agent_provider(self, body: dict[str, Any]) -> dict[str, object]:
+        """Open Terminal with the tool's sign-in command; the user finishes there."""
+
+        return open_sign_in(str(body.get("provider", "")))
+
     def localization_studio(self, app_id: int, country: str) -> dict[str, object]:
         settings = load_settings()
         with session_scope() as session:
@@ -615,7 +637,7 @@ class DashboardService:
                 settings=settings,
             )
         payload["providers"] = [
-            asdict(item)
+            provider_payload(item)
             for item in provider_status(
                 codex_path=settings.agent_codex_path,
                 claude_path=settings.agent_claude_path,
@@ -698,6 +720,7 @@ class DashboardService:
         self,
         body: dict[str, Any],
     ) -> dict[str, object]:
+        licensing.require("listing-push")
         return push_localization(
             draft_id=int(body["draftId"]),
             settings=load_settings(),
@@ -922,7 +945,7 @@ class DashboardService:
         with session_scope() as session:
             payload = niche_board_payload(session, board_id)
         payload["providers"] = [
-            asdict(provider)
+            provider_payload(provider)
             for provider in provider_status(
                 codex_path=settings.agent_codex_path,
                 claude_path=settings.agent_claude_path,
@@ -1161,62 +1184,6 @@ class DashboardService:
             "health": health,
         }
 
-    def screenshot_delete(self, body: dict[str, Any]) -> dict[str, object]:
-        return screenshots.delete_source(int(body["appId"]), int(body["sourceId"]))
-
-    def screenshot_reorder(self, body: dict[str, Any]) -> dict[str, object]:
-        return screenshots.reorder_sources(
-            int(body["appId"]), [int(item) for item in body["order"]]
-        )
-
-    def screenshot_caption(self, body: dict[str, Any]) -> dict[str, object]:
-        return screenshots.save_caption(
-            int(body["appId"]),
-            int(body["sourceId"]),
-            locale=str(body["locale"]),
-            headline=str(body.get("headline", "")),
-            subline=str(body.get("subline", "")),
-        )
-
-    def screenshot_settings(self, body: dict[str, Any]) -> dict[str, object]:
-        style = body.get("style")
-        return screenshots.save_settings(
-            int(body["appId"]),
-            main_locale=str(body["mainLocale"]) if body.get("mainLocale") else None,
-            style=style if isinstance(style, dict) else None,
-        )
-
-    def screenshot_draft(self, body: dict[str, Any]) -> dict[str, object]:
-        """Draft main-locale captions from the app's public listing and saved metadata."""
-
-        app_id = int(body["appId"])
-        country = validate_country_code(str(body.get("country", "us")))
-        listing = self.listing(app_id, country)
-        with session_scope() as session:
-            metadata = get_listing_metadata(session, app_id, country)
-            context = {
-                "name": metadata.name if metadata else listing.track_name,
-                "subtitle": metadata.subtitle if metadata else "",
-                "keywords": metadata.keyword_field if metadata else "",
-                "description": " ".join(listing.description.split())[:2_500],
-            }
-        return screenshots.draft_captions(app_id, context, provider=body.get("provider"))
-
-    def screenshot_translate(self, body: dict[str, Any]) -> dict[str, object]:
-        locales = [str(item) for item in body.get("locales", [])]
-        return screenshots.translate_captions(
-            int(body["appId"]), locales, provider=body.get("provider")
-        )
-
-    def screenshot_push(self, body: dict[str, Any]) -> dict[str, object]:
-        """Upload rendered screenshots to App Store Connect (the UI confirms first)."""
-
-        return screenshots.push_to_app_store_connect(
-            int(body["appId"]),
-            locales=[str(item) for item in body.get("locales", [])],
-            devices=[str(item) for item in body.get("devices", [])],
-        )
-
     def pricing_items(self, body: dict[str, Any]) -> dict[str, object]:
         return pricing.list_items(int(body["appId"]))
 
@@ -1235,6 +1202,7 @@ class DashboardService:
     def pricing_push(self, body: dict[str, Any]) -> dict[str, object]:
         """Write reviewed price changes (the UI lists and confirms each one first)."""
 
+        licensing.require("price-push")
         changes = body.get("changes")
         return pricing.push_prices(
             int(body["appId"]),
@@ -1246,6 +1214,22 @@ class DashboardService:
             else [],
             preserve_current_price=bool(body.get("preserveCurrentPrice", True)),
         )
+
+    def licence_action(self, body: dict[str, Any]) -> dict[str, object]:
+        """Activate or remove the Mac app licence (verified offline)."""
+
+        if body.get("remove"):
+            licensing.remove()
+        else:
+            licensing.activate(str(body.get("key", "")))
+        return self.desktop_status()
+
+    def desktop_status(self) -> dict[str, object]:
+        return {**licensing.status(), "settings": load_desktop_settings()}
+
+    def desktop_settings(self, body: dict[str, Any]) -> dict[str, object]:
+        save_desktop_settings(body)
+        return self.desktop_status()
 
     def export_fastlane(self, body: dict[str, Any]) -> dict[str, object]:
         """Write a fastlane metadata folder under the local exports directory only."""
@@ -1430,9 +1414,6 @@ class DashboardService:
             "artworkUrl": item.artwork_url,
             "genre": item.genre,
             "description": item.description,
-            "screenshots": item.screenshot_urls + item.ipad_screenshot_urls,
-            "screenshotCount": item.screenshot_count,
-            "screenshotStatus": "available" if item.screenshot_count else "not_exposed",
             "averageRating": item.average_rating,
             "ratingCount": item.rating_count,
             "updatedAt": _iso_utc(item.current_version_release_date),
@@ -1455,9 +1436,6 @@ class DashboardService:
             "version": None,
             "price": None,
             "url": None,
-            "screenshots": [],
-            "screenshotCount": 0,
-            "screenshotStatus": "unavailable",
         }
 
     @staticmethod
@@ -1503,22 +1481,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/licence":
+                self._json(self.service.desktop_status())
+                return
             if parsed.path == "/api/pricing":
                 query = parse_qs(parsed.query)
                 self._json(pricing.pricing_payload(int(query["appId"][0])))
-                return
-            if parsed.path == "/api/screenshots":
-                query = parse_qs(parsed.query)
-                self._json(screenshots.studio_payload(int(query["appId"][0])))
-                return
-            if parsed.path.startswith("/api/screenshots/file/"):
-                parts = parsed.path.split("/")
-                path, content_type = screenshots.file_for(parts[4], int(parts[5]))
-                content = path.read_bytes()
-                self.send_response(HTTPStatus.OK)
-                self._headers(content_type, len(content))
-                self.end_headers()
-                self.wfile.write(content)
                 return
             if parsed.path == "/api/bootstrap":
                 query = parse_qs(parsed.query)
@@ -1616,12 +1584,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        rejection = self._cross_origin_rejection(binary=parsed.path in BINARY_ROUTES)
+        rejection = self._cross_origin_rejection()
         if rejection:
             self._error(HTTPStatus.FORBIDDEN, rejection)
-            return
-        if parsed.path in BINARY_ROUTES:
-            self._binary_post(parsed.path, parse_qs(parsed.query))
             return
         try:
             body = self._read_json()
@@ -1634,13 +1599,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/countries": self.service.add_country,
                 "/api/background-sync": self.service.set_background_sync,
                 "/api/exports/fastlane": self.service.export_fastlane,
-                "/api/screenshots/delete": self.service.screenshot_delete,
-                "/api/screenshots/reorder": self.service.screenshot_reorder,
-                "/api/screenshots/caption": self.service.screenshot_caption,
-                "/api/screenshots/settings": self.service.screenshot_settings,
-                "/api/screenshots/draft": self.service.screenshot_draft,
-                "/api/screenshots/translate": self.service.screenshot_translate,
-                "/api/screenshots/push": self.service.screenshot_push,
+                "/api/licence": self.service.licence_action,
+                "/api/desktop/settings": self.service.desktop_settings,
                 "/api/pricing/items": self.service.pricing_items,
                 "/api/pricing/suggest": self.service.pricing_suggest,
                 "/api/pricing/push": self.service.pricing_push,
@@ -1665,6 +1625,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/audits/cancel": self.service.cancel_audit,
                 "/api/audits/expand": self.service.expand_audit,
                 "/api/agent/test": self.service.test_agent_provider,
+                "/api/agent/check": self.service.check_agent_provider,
+                "/api/agent/sign-in": self.service.sign_in_agent_provider,
                 "/api/app-store-connect/settings": self.service.save_app_store_connect_settings,
                 "/api/app-store-connect/test": self.service.test_app_store_connect,
                 "/api/localization-studio/main": self.service.set_localization_main_storefront,
@@ -1678,6 +1640,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.NOT_FOUND, "unknown local action")
                 return
             self._json(action(body))
+        except licensing.LicenceRequired as exc:
+            self._error(HTTPStatus.PAYMENT_REQUIRED, str(exc))
         except (
             ValueError,
             KeyError,
@@ -1717,34 +1681,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
-    def _binary_post(self, path: str, query: dict[str, list[str]]) -> None:
-        """Raw image uploads (screenshots); everything else is JSON."""
-
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > BINARY_LIMIT:
-                raise ValueError("images must be 15 MB or smaller")
-            data = self.rfile.read(length)
-            app_id = int(query["appId"][0])
-            if path == "/api/screenshots/sources":
-                name = str(query.get("name", [""])[0])
-                result = screenshots.add_source(app_id, data, original_name=name)
-            else:
-                result = screenshots.save_render(
-                    app_id,
-                    locale=str(query["locale"][0]),
-                    device=str(query["device"][0]),
-                    position=int(query["position"][0]),
-                    data=data,
-                )
-            self._json(result)
-        except (ValueError, KeyError) as exc:
-            self._error(HTTPStatus.BAD_REQUEST, str(exc))
-        except Exception as exc:
-            logger.exception("Dashboard upload failed")
-            self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"local dashboard error: {exc}")
-
-    def _cross_origin_rejection(self, *, binary: bool = False) -> str | None:
+    def _cross_origin_rejection(self) -> str | None:
         """Refuse actions not sent by this dashboard's own page.
 
         Actions write files, install a LaunchAgent, and spend Apple quota, so another web
@@ -1759,10 +1696,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if hostname not in {"127.0.0.1", "localhost", "::1"}:
             return "actions are only accepted on this computer's local address"
         content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
-        # Image uploads use raw image bodies; a cross-site form can't send those either.
-        allowed = {"image/png", "image/jpeg"} if binary else {"application/json"}
-        if content_type not in allowed:
-            return "actions must be sent as JSON" if not binary else "upload a PNG or JPEG image"
+        if content_type != "application/json":
+            return "actions must be sent as JSON"
         origin = self.headers.get("Origin")
         if origin is not None:
             expected = {f"http://{host}", f"https://{host}"}
@@ -1802,12 +1737,32 @@ class LocalDashboardServer(ThreadingHTTPServer):
 
 
 READY_PREFIX = "LOCAL_ASO_READY"
-BINARY_ROUTES = {"/api/screenshots/sources", "/api/screenshots/rendered"}
-BINARY_LIMIT = 15 * 1024 * 1024 + 1
 
 
 class _ShutdownRequested(Exception):
     """Raised from the SIGTERM handler to leave ``serve_forever`` cleanly."""
+
+
+def watch_parent(
+    parent: int,
+    *,
+    on_orphaned: Callable[[], None],
+    getppid: Callable[[], int] = os.getppid,
+    interval: float = 2.0,
+    stop: threading.Event | None = None,
+) -> None:
+    """Call ``on_orphaned`` once the process that started us is gone.
+
+    The Mac app stops the server on Quit, but if the app crashes or is force-quit the
+    server would keep running and holding the database; the parent's exit re-parents
+    us, which changes ``getppid()``.
+    """
+
+    halt = stop or threading.Event()
+    while not halt.wait(interval):
+        if getppid() != parent:
+            on_orphaned()
+            return
 
 
 def serve_dashboard(
@@ -1854,6 +1809,14 @@ def serve_dashboard(
             raise _ShutdownRequested
 
         previous_handler = signal.signal(signal.SIGTERM, _on_sigterm)
+    if os.getenv("LOCAL_ASO_DESKTOP") == "1":
+        threading.Thread(
+            target=watch_parent,
+            args=(os.getppid(),),
+            kwargs={"on_orphaned": lambda: os.kill(os.getpid(), signal.SIGTERM)},
+            daemon=True,
+            name="parent-watch",
+        ).start()
     try:
         server.serve_forever(poll_interval=0.25)
     except (KeyboardInterrupt, _ShutdownRequested):

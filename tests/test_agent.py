@@ -44,9 +44,6 @@ def test_agent_requires_a_keyword_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_claude_result_can_be_an_embedded_json_string(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        agent, "shutil", type("Shutil", (), {"which": lambda _self, _name: "/bin/claude"})()
-    )
-    monkeypatch.setattr(
         agent,
         "_run",
         lambda _command, _timeout: agent.subprocess.CompletedProcess(
@@ -57,7 +54,7 @@ def test_claude_result_can_be_an_embedded_json_string(monkeypatch: pytest.Monkey
         ),
     )
 
-    result = agent._run_claude("prompt", 10)
+    result = agent._run_claude("prompt", 10, executable="/bin/claude")
 
     assert result == {"keywords": ["keto tracker"]}
 

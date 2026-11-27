@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Check, CircleAlert, CircleCheck, CircleHelp, Pencil } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, CircleCheck, CircleHelp, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { apiPost } from "@/lib/api";
 import { countryFlag, deviceName, rankLabel } from "@/lib/format";
+import { useTrackKeywords } from "@/lib/mutations";
 import type { Country, Device, Listing, ListingMetadata } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { highlightContext, inferBrand, keywordFieldSegments, textSegments, toneLabel, toneMark, type TokenTone } from "./highlight";
@@ -361,7 +362,7 @@ export function ListingCoverage({
               {strategy.goal_label} · {countryFlag(country)} {country.toUpperCase()} · {deviceName(device)}
             </p>
             <LiveEditor draft={fields} brand={strategy.brand_term || brand} onEdit={editLive} />
-            <CoverageResults analysis={analysis} strategy={strategy} />
+            <CoverageResults analysis={analysis} strategy={strategy} track={{ appId, country, device }} />
             <div>
               <Button
                 variant="ghost"
@@ -548,7 +549,31 @@ function SummaryStat({ label, value, note }: { label: string; value: number; not
   );
 }
 
-export function CoverageResults({ analysis, strategy }: { analysis: CoverageAnalysis; strategy: StrategyAnalysis }) {
+export function CoverageResults({
+  analysis,
+  strategy,
+  track,
+}: {
+  analysis: CoverageAnalysis;
+  strategy: StrategyAnalysis;
+  /** Where one-click tracking adds keywords; omitted, the list is read-only. */
+  track?: { appId: number; country: string; device: Device };
+}) {
+  const [trackedNow, setTrackedNow] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const trackKeywords = useTrackKeywords();
+  const startTracking = (keywords: string[]) => {
+    if (!track || !keywords.length) return;
+    setPending((current) => new Set([...current, ...keywords]));
+    trackKeywords.mutate(
+      { appId: track.appId, keywords, countries: [track.country], devices: [track.device] },
+      {
+        onSuccess: () => setTrackedNow((current) => new Set([...current, ...keywords])),
+        onSettled: () =>
+          setPending((current) => new Set([...current].filter((item) => !keywords.includes(item)))),
+      },
+    );
+  };
   const matched = analysis.matched ?? [];
   const untracked = analysis.untracked_matches ?? [];
   return (
@@ -594,7 +619,18 @@ export function CoverageResults({ analysis, strategy }: { analysis: CoverageAnal
         </section>
         <section className="grid content-start gap-2" aria-labelledby="coverage-untracked-title">
           <h3 id="coverage-untracked-title" className="flex items-center gap-2 text-sm font-medium">
-            Untracked keyword matches <Badge variant="secondary">{untracked.length}</Badge>
+            Untracked keyword matches <Badge variant="secondary">{untracked.length - trackedNow.size}</Badge>
+            {track && untracked.some((item) => !trackedNow.has(item.keyword)) ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-7"
+                disabled={trackKeywords.isPending}
+                onClick={() => startTracking(untracked.map((item) => item.keyword).filter((keyword) => !trackedNow.has(keyword)))}
+              >
+                <Plus /> Track all
+              </Button>
+            ) : null}
           </h3>
           {untracked.length ? (
             <ul className="divide-y rounded-lg border">
@@ -604,9 +640,26 @@ export function CoverageResults({ analysis, strategy }: { analysis: CoverageAnal
                     <span className="truncate text-sm">{item.keyword}</span>
                     <span className="text-muted-foreground text-xs">{item.sources.join(" · ")}</span>
                   </div>
-                  <Badge variant="outline" className="font-normal">
-                    Untracked
-                  </Badge>
+                  {trackedNow.has(item.keyword) ? (
+                    <Badge variant="secondary" className="font-normal">
+                      <Check /> Tracked
+                    </Badge>
+                  ) : track ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      disabled={pending.has(item.keyword)}
+                      onClick={() => startTracking([item.keyword])}
+                      aria-label={`Track ${item.keyword} in ${track.country.toUpperCase()}`}
+                    >
+                      {pending.has(item.keyword) ? <Spinner /> : <Plus />} Track
+                    </Button>
+                  ) : (
+                    <Badge variant="outline" className="font-normal">
+                      Untracked
+                    </Badge>
+                  )}
                 </li>
               ))}
             </ul>

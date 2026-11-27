@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -20,7 +19,6 @@ APP_STORE_CONNECT_BASE_URL = f"{APP_STORE_CONNECT_ROOT}/v1"
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3
 MAX_RETRY_WAIT_SECONDS = 30.0
-UPLOAD_TIMEOUT_SECONDS = 120.0
 # App info states that are not the live record (the editable copy for the next version).
 _LIVE_APP_INFO_STATES = {"READY_FOR_DISTRIBUTION", "REPLACED_WITH_NEW_INFO"}
 EDITABLE_VERSION_STATES = {
@@ -365,131 +363,6 @@ class AppStoreConnectClient:
             "versionLocalizationId": version_localization_id,
         }
 
-    def replace_screenshots(
-        self,
-        *,
-        version_localization_id: str,
-        display_type: str,
-        files: list[tuple[str, bytes]],
-        poll_attempts: int = 30,
-        poll_seconds: float = 2.0,
-    ) -> tuple[list[str], list[str]]:
-        """Replace one screenshot set with `files`, in order. Returns (before ids, after ids).
-
-        Apple's flow per file: reserve the asset, PUT each upload operation, commit with the
-        MD5 checksum, then wait until Apple has processed it.
-        """
-
-        sets = self._get_all(
-            f"/appStoreVersionLocalizations/{version_localization_id}/appScreenshotSets",
-            params={"fields[appScreenshotSets]": "screenshotDisplayType", "limit": 50},
-        )
-        screenshot_set = next(
-            (
-                item
-                for item in sets
-                if item.get("attributes", {}).get("screenshotDisplayType") == display_type
-            ),
-            None,
-        )
-        if screenshot_set is None:
-            created = self._request(
-                "POST",
-                "/appScreenshotSets",
-                json_body={
-                    "data": {
-                        "type": "appScreenshotSets",
-                        "attributes": {"screenshotDisplayType": display_type},
-                        "relationships": {
-                            "appStoreVersionLocalization": {
-                                "data": {
-                                    "type": "appStoreVersionLocalizations",
-                                    "id": version_localization_id,
-                                }
-                            }
-                        },
-                    }
-                },
-            )
-            set_id = str(created["data"]["id"])
-            before: list[str] = []
-        else:
-            set_id = str(screenshot_set["id"])
-            before = [
-                str(item["id"])
-                for item in self._get_all(
-                    f"/appScreenshotSets/{set_id}/appScreenshots", params={"limit": 50}
-                )
-            ]
-        for screenshot_id in before:
-            self._request("DELETE", f"/appScreenshots/{screenshot_id}")
-        after: list[str] = []
-        for file_name, data in files:
-            reserved = self._request(
-                "POST",
-                "/appScreenshots",
-                json_body={
-                    "data": {
-                        "type": "appScreenshots",
-                        "attributes": {"fileName": file_name, "fileSize": len(data)},
-                        "relationships": {
-                            "appScreenshotSet": {
-                                "data": {"type": "appScreenshotSets", "id": set_id}
-                            }
-                        },
-                    }
-                },
-            )["data"]
-            screenshot_id = str(reserved["id"])
-            for operation in reserved.get("attributes", {}).get("uploadOperations") or []:
-                offset = int(operation.get("offset", 0))
-                length = int(operation.get("length", len(data)))
-                self._upload_part(
-                    url=str(operation["url"]),
-                    method=str(operation.get("method", "PUT")),
-                    headers={
-                        str(header["name"]): str(header["value"])
-                        for header in operation.get("requestHeaders") or []
-                    },
-                    data=data[offset : offset + length],
-                )
-            self._request(
-                "PATCH",
-                f"/appScreenshots/{screenshot_id}",
-                json_body={
-                    "data": {
-                        "type": "appScreenshots",
-                        "id": screenshot_id,
-                        "attributes": {
-                            "uploaded": True,
-                            "sourceFileChecksum": hashlib.md5(
-                                data, usedforsecurity=False
-                            ).hexdigest(),
-                        },
-                    }
-                },
-            )
-            self._wait_for_asset(screenshot_id, attempts=poll_attempts, seconds=poll_seconds)
-            after.append(screenshot_id)
-        return before, after
-
-    def _wait_for_asset(self, screenshot_id: str, *, attempts: int, seconds: float) -> None:
-        for _attempt in range(attempts):
-            payload = self._request(
-                "GET",
-                f"/appScreenshots/{screenshot_id}",
-                params={"fields[appScreenshots]": "assetDeliveryState"},
-            )
-            state = (
-                payload.get("data", {}).get("attributes", {}).get("assetDeliveryState") or {}
-            ).get("state")
-            if state == "COMPLETE":
-                return
-            if state == "FAILED":
-                raise AppStoreConnectError("Apple could not process an uploaded screenshot")
-            self._sleep(seconds)
-        raise AppStoreConnectError("Apple is still processing the screenshots; check again later")
-
     def _request(
         self,
         method: str,
@@ -570,35 +443,6 @@ class AppStoreConnectClient:
                 break
             payload = self._request("GET", str(next_url))
         return items
-
-    def _upload_part(
-        self,
-        *,
-        url: str,
-        method: str,
-        headers: dict[str, str],
-        data: bytes,
-    ) -> None:
-        """PUT one asset chunk to the upload URL App Store Connect handed out.
-
-        These URLs are pre-signed storage endpoints: no bearer token is sent, and only
-        https URLs on Apple hosts are accepted.
-        """
-
-        parsed = httpx.URL(url)
-        host = (parsed.host or "").lower()
-        if parsed.scheme != "https" or not (host == "apple.com" or host.endswith(".apple.com")):
-            raise AppStoreConnectError("refusing to upload to a non-Apple URL")
-        try:
-            response = self._client.request(
-                method.upper(), url, headers=headers, content=data, timeout=UPLOAD_TIMEOUT_SECONDS
-            )
-        except httpx.HTTPError as exc:
-            raise AppStoreConnectError("the screenshot upload could not reach Apple") from exc
-        if response.status_code >= 400:
-            raise AppStoreConnectError(
-                f"Apple rejected an upload part (HTTP {response.status_code})"
-            )
 
     @staticmethod
     def _sleep(seconds: float) -> None:

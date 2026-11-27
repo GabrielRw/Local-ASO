@@ -51,8 +51,6 @@ export interface CompareListing {
   artworkUrl: string | null;
   genre: string | null;
   description?: string;
-  screenshotCount: number;
-  screenshotStatus: string;
   averageRating?: number | null;
   ratingCount?: number | null;
   updatedAt?: string | null;

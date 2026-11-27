@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Languages, PlugZap, RefreshCw, Save, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Eye, Languages, Lock, Pencil, PlugZap, RefreshCw, Save, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -27,7 +27,12 @@ import { apiPost } from "@/lib/api";
 import { countryFlag, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AppStoreConnectSettings } from "@/components/app-store-connect-settings";
+import { useDialogs } from "@/components/dialogs";
+import { useWritesLocked } from "@/lib/licence";
 import { FastlaneExportButton } from "./fastlane-export";
+import { ListingPreview } from "./listing-preview";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useCurrentBootstrap } from "@/lib/queries";
 import { CharCount } from "./highlight-input";
 import { replaceDraft, useLocalizationStudio, usePatchStudio } from "./queries";
 import { connectionReady, selectableTargets } from "./studio";
@@ -85,6 +90,12 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
   const [targets, setTargets] = useState<string[]>([]);
   const [provider, setProvider] = useState<string | null>(null);
   const [pushId, setPushId] = useState<number | null>(null);
+  const locked = useWritesLocked();
+  const dialogs = useDialogs();
+  const bootstrapListing = useCurrentBootstrap().data?.listing;
+  const listing = bootstrapListing
+    ? { artworkUrl: bootstrapListing.artworkUrl, seller: bootstrapListing.seller, genre: bootstrapListing.genre }
+    : null;
 
   const data = studio.data;
   const chosenProvider = provider ?? data?.defaultProvider ?? "auto";
@@ -162,8 +173,8 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
       </CardHeader>
       <CardContent className="grid gap-6">
         <p className="text-muted-foreground text-sm text-pretty">
-          Use one confirmed main listing as the source, choose target countries, then review and approve each
-          localized field before pushing.
+          Use one confirmed main listing as the source and choose target countries. Drafts stay on this Mac: edit
+          and preview each one, and nothing reaches App Store Connect until you approve and push it.
         </p>
 
         <div className="grid items-end gap-4 md:grid-cols-[14rem_minmax(0,1fr)_12rem_auto]">
@@ -234,7 +245,7 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
         />
 
         <p className="text-muted-foreground text-xs">
-          Text metadata only. Existing screenshots and previews stay unchanged in App Store Connect.
+          Text metadata only. Media in App Store Connect stays unchanged.
         </p>
 
         {data.drafts.length ? (
@@ -256,7 +267,9 @@ export function LocalizationStudio({ appId, country }: { appId: number; country:
                 onSave={(fields) => update.mutate({ draftId: draft.id, fields })}
                 onApprove={() => approve.mutate({ draftId: draft.id })}
                 onRegenerate={() => generate.mutate({ targetCountries: draft.targetCountries, draftId: draft.id })}
-                onPush={() => setPushId(draft.id)}
+                locked={locked}
+                listing={listing}
+                onPush={() => (locked ? dialogs.open("licence") : setPushId(draft.id))}
               />
             ))}
           </div>
@@ -384,7 +397,10 @@ function DraftCard({
   onApprove,
   onRegenerate,
   onPush,
+  locked,
+  listing,
 }: {
+  listing: { artworkUrl: string | null; seller: string | null; genre: string | null } | null;
   draft: LocalizationDraft;
   countries: LocalizationCountry[];
   providerLabel: string;
@@ -395,10 +411,12 @@ function DraftCard({
   onApprove: () => void;
   onRegenerate: () => void;
   onPush: () => void;
+  locked: boolean;
 }) {
   const [fields, setFields] = useState<Record<string, string>>(() =>
     Object.fromEntries(DRAFT_FIELDS.map((item) => [item.key, String(draft.fields?.[item.key] ?? "")])),
   );
+  const [view, setView] = useState<"edit" | "preview">("edit");
   const issues = draft.validation?.issues ?? [];
   const errors = issues.filter((issue) => issue.severity === "error").length;
   const names = draft.targetCountries
@@ -454,7 +472,34 @@ function DraftCard({
         </Alert>
       ) : null}
 
-      <FieldGroup className="grid gap-4 md:grid-cols-3">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={view}
+        onValueChange={(value) => value && setView(value as "edit" | "preview")}
+        aria-label={`View for ${draft.targetLocale}`}
+        className="w-fit"
+      >
+        <ToggleGroupItem value="edit">
+          <Pencil /> Edit
+        </ToggleGroupItem>
+        <ToggleGroupItem value="preview">
+          <Eye /> Preview
+        </ToggleGroupItem>
+      </ToggleGroup>
+
+      {view === "preview" ? (
+        <ListingPreview
+          fields={fields}
+          locale={draft.targetLocale}
+          artworkUrl={listing?.artworkUrl}
+          seller={listing?.seller}
+          genre={listing?.genre}
+        />
+      ) : null}
+
+      <FieldGroup className={cn("grid gap-4 md:grid-cols-3", view === "preview" && "hidden")}>
         {DRAFT_FIELDS.map((item) => {
           const id = `draft-${draft.id}-${item.key}`;
           const value = fields[item.key] ?? "";
@@ -505,10 +550,10 @@ function DraftCard({
           size="sm"
           className="sm:ml-auto"
           onClick={onPush}
-          disabled={anyBusy || draft.status !== "approved" || !ready}
-          title={!ready ? "Set up App Store Connect push settings first" : undefined}
+          disabled={anyBusy || draft.status !== "approved" || (!ready && !locked)}
+          title={!ready && !locked ? "Set up App Store Connect push settings first" : undefined}
         >
-          <Send /> Push to Apple
+          {locked ? <Lock /> : <Send />} {locked ? "Licence required" : "Push to Apple"}
         </Button>
       </div>
     </article>

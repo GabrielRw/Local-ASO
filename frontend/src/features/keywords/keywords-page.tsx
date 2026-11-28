@@ -33,11 +33,13 @@ import {
   dailyKeywordSnapshots,
   losingTo,
   sortRankings,
+  storefrontSummaries,
   summarizeRanks,
   type SortField,
 } from "./keyword-utils";
 import { MetricCards } from "./metric-cards";
 import { RankingsTable, type SortState } from "./rankings-table";
+import { StorefrontOverview } from "./storefront-overview";
 
 interface CheckResult {
   checks: number;
@@ -59,7 +61,7 @@ const NO_QUEUE: ReadonlySet<number> = new Set();
 export function KeywordsPage() {
   const bootstrap = useCurrentBootstrap();
   const data = bootstrap.data;
-  const [selection] = useSelection({ appId: data?.selectedAppId, country: data?.selectedCountry });
+  const [selection, select] = useSelection({ appId: data?.selectedAppId, country: data?.selectedCountry });
   const { appId, country, device } = selection;
   const invalidate = useInvalidate();
   const queryClient = useQueryClient();
@@ -99,6 +101,10 @@ export function KeywordsPage() {
   );
   const competitorsAhead = useMemo(() => losingTo(marketRows, appId), [marketRows, appId]);
   const summary = useMemo(() => summarizeRanks(marketRows), [marketRows]);
+  const storefronts = useMemo(
+    () => storefrontSummaries(rankings, data?.countries ?? [], data?.targetCounts ?? {}, device),
+    [rankings, data?.countries, data?.targetCounts, device],
+  );
   const marketKey = `${country}:${device}`;
   const trackedCount = Number(data?.targetCounts?.[marketKey] ?? 0);
   const selected = marketRows.find((row) => row.targetId === selectedId) ?? null;
@@ -273,6 +279,18 @@ export function KeywordsPage() {
             <EmptyDescription>Add an App Store app from the sidebar to start tracking keywords.</EmptyDescription>
           </EmptyHeader>
         </Empty>
+      ) : null}
+
+      {data && appId && storefronts.length > 1 ? (
+        <StorefrontOverview
+          summaries={storefronts}
+          selected={country}
+          device={device}
+          onSelect={(code) => {
+            setSelectedId(null);
+            select({ country: code });
+          }}
+        />
       ) : null}
 
       {data && appId && !marketRows.length ? (

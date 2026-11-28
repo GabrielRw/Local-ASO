@@ -2,7 +2,7 @@
 // did not return stays rank = null / found = false and is excluded from averages.
 
 import { demandSortValue } from "@/lib/format";
-import type { Device, HistoryPoint, MetricTrend, Ranking } from "@/lib/types";
+import type { Country, Device, HistoryPoint, MetricTrend, Ranking } from "@/lib/types";
 
 export type SortField = "keyword" | "rank" | "popularity" | "difficulty" | "top5" | "change" | "opportunity" | "updated";
 export type SortDirection = "asc" | "desc";
@@ -202,4 +202,66 @@ export function changeTone(change: string): "new" | "lost" | "up" | "down" | "fl
   if (change.startsWith("+")) return "up";
   if (change.startsWith("-")) return "down";
   return "flat";
+}
+
+/** One storefront's ranks on a device: how many tracked keywords sit in each rank band. */
+export interface StorefrontSummary {
+  code: string;
+  name: string;
+  active: boolean;
+  tracked: number;
+  top10: number;
+  top50: number;
+  /** Keywords Apple returned the app for, at any rank. */
+  ranked: number;
+  best: Ranking | null;
+}
+
+/**
+ * Every storefront that tracks keywords on the device, best results first: top 10, then
+ * top 50, then ranked at all. The order does not depend on the selected storefront.
+ */
+export function storefrontSummaries(
+  rankings: Ranking[],
+  countries: Country[],
+  targetCounts: Record<string, number>,
+  device: Device,
+): StorefrontSummary[] {
+  return countries
+    .map((country) => {
+      const ranked = rankings
+        .filter((row) => row.country === country.code && row.device === device && row.found && row.rank != null)
+        .sort((a, b) => (a.rank as number) - (b.rank as number));
+      return {
+        code: country.code,
+        name: country.name,
+        active: country.active,
+        tracked: Number(targetCounts[`${country.code}:${device}`] ?? 0),
+        top10: ranked.filter((row) => (row.rank as number) <= 10).length,
+        top50: ranked.filter((row) => (row.rank as number) <= 50).length,
+        ranked: ranked.length,
+        best: ranked[0] ?? null,
+      };
+    })
+    .filter((item) => item.tracked > 0)
+    .sort(
+      (a, b) =>
+        b.top10 - a.top10 || b.top50 - a.top50 || b.ranked - a.ranked || b.tracked - a.tracked || a.name.localeCompare(b.name),
+    );
+}
+
+/**
+ * The storefronts a reduced overview keeps: the selected one, then the pinned ones in the
+ * overview's order. With nothing pinned, the two that track the most keywords stand in.
+ */
+export function reducedStorefronts(
+  summaries: StorefrontSummary[],
+  selected: string,
+  pinned: readonly string[],
+): StorefrontSummary[] {
+  const extra = pinned.length
+    ? summaries.filter((item) => pinned.includes(item.code))
+    : [...summaries].sort((a, b) => b.tracked - a.tracked || a.name.localeCompare(b.name)).filter((item) => item.code !== selected).slice(0, 2);
+  const keep = new Set([selected, ...extra.map((item) => item.code)]);
+  return summaries.filter((item) => keep.has(item.code));
 }

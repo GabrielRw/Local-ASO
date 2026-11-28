@@ -182,7 +182,8 @@ def _measure_terms(
     client: AppleAdsClient,
     now: datetime | None,
 ) -> PopularityRefreshSummary:
-    account_id = load_settings().apple_ads_account_id
+    settings = load_settings()
+    account_id = settings.apple_ads_account_id
     if account_id <= 0:
         raise ValueError("select an Apple Ads account before measuring keyword popularity")
     current = now or datetime.now(UTC)
@@ -195,12 +196,18 @@ def _measure_terms(
             if force or is_stale(stored.get(key), cutoff=cutoff)
         ]
         promoted_app_id = _stored_promoted_app_id(session, account_id) if due else None
+        fallback_app_id = _tracked_app_id(session, settings.default_app_id) if due else None
 
     skipped = len(terms) - len(due)
     if not due:
         return PopularityRefreshSummary(0, 0, 0, skipped, 0)
     if promoted_app_id is None:
-        promoted_app_id = _live_promoted_app_id(client, account_id)
+        promoted_app_id = _live_promoted_app_id(client, account_id) or fallback_app_id
+    if promoted_app_id is None:
+        raise ValueError(
+            "Apple Ads popularity needs an app of the selected account: promote one in a "
+            "campaign, or track one of the account's apps"
+        )
 
     measured = missing = failures = consecutive_failures = 0
     unsupported: set[str] = set()
@@ -279,10 +286,23 @@ def _stored_promoted_app_id(session: Session, account_id: int) -> int | None:
     return next((app_id for app_id in promoted if app_id in tracked), promoted[0])
 
 
-def _live_promoted_app_id(client: AppleAdsClient, account_id: int) -> int:
+def _live_promoted_app_id(client: AppleAdsClient, account_id: int) -> int | None:
     for campaign in client.campaigns(account_id):
         if campaign.promoted_object_id and not campaign.deleted:
             return campaign.promoted_object_id
-    raise ValueError(
-        "Apple Ads popularity needs at least one app promoted by a campaign in the selected account"
+    return None
+
+
+def _tracked_app_id(session: Session, default_app_id: int) -> int | None:
+    """An account without campaigns: Apple still answers for an app the account owns.
+
+    Use the default app when it is tracked, else the first tracked app. If that app is not
+    the account's, Apple rejects the requests and they are reported as failures.
+    """
+
+    tracked = list(
+        session.scalars(select(App.apple_app_id).where(App.active.is_(True)).order_by(App.id))
     )
+    if default_app_id in tracked:
+        return default_app_id
+    return tracked[0] if tracked else None

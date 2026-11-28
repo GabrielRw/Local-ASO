@@ -1,13 +1,16 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Plus, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Plus, Star, Swords, X } from "lucide-react";
 import { AppIcon } from "@/components/app-icon";
-import { DemandValue, DifficultyValue } from "@/components/metric";
+import { CompetitorBadge } from "@/components/competitor-badge";
+import { InfoTip } from "@/components/info-tip";
+import { DemandValue, DifficultyValue, OpportunityValue } from "@/components/metric";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCompact, formatDate, rankLabel, shortOpportunity } from "@/lib/format";
+import { formatCompact, formatDate, rankLabel } from "@/lib/format";
 import type { Ranking, TopApp } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { COLUMN_INFO } from "./column-info";
 import { changeTone, type SortDirection, type SortField } from "./keyword-utils";
 
 export interface SortState {
@@ -22,12 +25,6 @@ const changeClass: Record<ReturnType<typeof changeTone>, string> = {
   down: "text-rose-600 dark:text-rose-400",
   flat: "text-muted-foreground",
 };
-
-function signalClass(opportunity: string): string {
-  if (opportunity.startsWith("Defend")) return "text-emerald-600 dark:text-emerald-400";
-  if (opportunity.includes("Growth")) return "text-amber-600 dark:text-amber-400";
-  return "text-muted-foreground";
-}
 
 function SortHead({
   field,
@@ -44,22 +41,26 @@ function SortHead({
 }) {
   const active = sort.field === field;
   const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const info = COLUMN_INFO[field];
   return (
     <TableHead
       className={className}
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        className={cn(
-          "hover:text-foreground focus-visible:ring-ring/50 -mx-1 inline-flex items-center gap-1 rounded-sm px-1 focus-visible:ring-[3px] focus-visible:outline-none",
-          active ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {label}
-        <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
-      </button>
+      <span className="inline-flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => onSort(field)}
+          className={cn(
+            "hover:text-foreground focus-visible:ring-ring/50 -mx-1 inline-flex items-center gap-1 rounded-sm px-1 focus-visible:ring-[3px] focus-visible:outline-none",
+            active ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {label}
+          <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
+        </button>
+        {info ? <InfoTip info={info} /> : null}
+      </span>
     </TableHead>
   );
 }
@@ -180,6 +181,7 @@ export function RankingsTable({
   onAddCompetitor,
   addingCompetitor,
   onStopTracking,
+  onToggleCompetitor,
   busy,
 }: {
   rows: Ranking[];
@@ -193,6 +195,7 @@ export function RankingsTable({
   onAddCompetitor: (app: TopApp) => void;
   addingCompetitor: boolean;
   onStopTracking: (row: Ranking) => void;
+  onToggleCompetitor: (row: Ranking) => void;
   busy: boolean;
 }) {
   const head = { sort, onSort };
@@ -204,9 +207,9 @@ export function RankingsTable({
           <SortHead field="rank" label="Rank" {...head} />
           <SortHead field="popularity" label="Popularity" {...head} />
           <SortHead field="difficulty" label="Difficulty" {...head} />
+          <SortHead field="opportunity" label="Opportunity" {...head} />
           <SortHead field="top5" label="Top 5" {...head} />
           <SortHead field="change" label="Change" {...head} />
-          <SortHead field="signal" label="Signal" {...head} />
           <SortHead field="updated" label="Updated" {...head} />
           <TableHead className="pr-6 text-right">
             <span className="sr-only">Actions</span>
@@ -220,16 +223,19 @@ export function RankingsTable({
           return (
             <TableRow key={row.targetId} data-state={selected ? "selected" : undefined}>
               <TableCell className="max-w-64 pl-6">
-                <button
-                  type="button"
-                  aria-pressed={selected}
-                  aria-label={`Show rank history for ${row.keyword}`}
-                  title={row.keyword}
-                  onClick={() => onSelect(row.targetId)}
-                  className="block max-w-full truncate text-left font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
-                >
-                  {row.keyword}
-                </button>
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`Show rank history for ${row.keyword}`}
+                    title={row.keyword}
+                    onClick={() => onSelect(row.targetId)}
+                    className="block min-w-0 truncate text-left font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+                  >
+                    {row.keyword}
+                  </button>
+                  {row.competitorBrand ? <CompetitorBadge /> : null}
+                </div>
               </TableCell>
               <TableCell>
                 <RankCell row={row} state={state} />
@@ -239,6 +245,9 @@ export function RankingsTable({
               </TableCell>
               <TableCell>
                 <DifficultyValue value={row.difficultyEstimate} />
+              </TableCell>
+              <TableCell>
+                <OpportunityValue value={row.opportunity} />
               </TableCell>
               <TableCell>
                 <TopApps
@@ -251,11 +260,28 @@ export function RankingsTable({
               <TableCell className={cn("text-sm font-medium tabular-nums", changeClass[changeTone(row.change)])}>
                 {row.change}
               </TableCell>
-              <TableCell className={cn("text-sm", signalClass(row.opportunity))}>
-                {row.opportunity ? shortOpportunity(row.opportunity) : "—"}
-              </TableCell>
               <TableCell className="text-muted-foreground text-sm">{formatDate(row.checkedAt)}</TableCell>
-              <TableCell className="pr-6 text-right">
+              <TableCell className="pr-6 text-right whitespace-nowrap">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-pressed={row.competitorBrand}
+                  aria-label={
+                    row.competitorBrand
+                      ? `${row.keyword} is not a competitor's name`
+                      : `Mark ${row.keyword} as a competitor's name`
+                  }
+                  title={
+                    row.competitorBrand
+                      ? "Not a competitor's name: unmark it in every storefront"
+                      : "Mark as a competitor's name (Apple Ads only), in every storefront"
+                  }
+                  className={row.competitorBrand ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}
+                  onClick={() => onToggleCompetitor(row)}
+                >
+                  <Swords />
+                </Button>
                 <Button
                   size="icon-sm"
                   variant="ghost"

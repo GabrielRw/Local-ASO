@@ -14,6 +14,7 @@ function row(patch: Partial<Ranking>): Ranking {
   return {
     targetId: 1,
     keyword: "kw",
+    competitorBrand: false,
     country: "us",
     device: "iphone",
     rank: null,
@@ -30,7 +31,7 @@ function row(patch: Partial<Ranking>): Ranking {
     previousFound: null,
     change: "—",
     checkedAt: "2026-11-10T10:00:00Z",
-    opportunity: "",
+    opportunity: null,
     status: "success",
     error: null,
     ...patch,
@@ -157,5 +158,17 @@ describe("summarizeRanks", () => {
     expect(
       summarizeRanks([row({ rank: 4, found: true }), row({ rank: 60, found: true }), row({ rank: null, found: false })]),
     ).toEqual({ top10: 1, top50: 1, averageRank: 32 });
+  });
+});
+
+describe("sortRankings by opportunity", () => {
+  it("puts the biggest opportunity first and keywords without one last", () => {
+    const rows = [
+      row({ targetId: 1, keyword: "small", opportunity: 3 }),
+      row({ targetId: 2, keyword: "none", opportunity: null }),
+      row({ targetId: 3, keyword: "big", opportunity: 30 }),
+      row({ targetId: 4, keyword: "won", opportunity: 0 }),
+    ];
+    expect(sortRankings(rows, "opportunity", "desc").map((item) => item.keyword)).toEqual(["big", "small", "won", "none"]);
   });
 });

@@ -17,10 +17,12 @@ export function AppHeader({
   title,
   actions,
   storefrontPickers = true,
+  countryPicker = true,
 }: {
   title: string;
   actions?: ReactNode;
   storefrontPickers?: boolean;
+  countryPicker?: boolean;
 }) {
   const { data } = useCurrentBootstrap();
   const [selection, select] = useSelection({ appId: data?.selectedAppId, country: data?.selectedCountry });
@@ -29,25 +31,27 @@ export function AppHeader({
 
   const pickers = storefrontPickers ? (
     <div className="flex items-center gap-2">
-      <Select
-        value={selection.country}
-        onValueChange={(country) => (country === ADD_STOREFRONT ? setAdding(true) : select({ country }))}
-      >
-        <SelectTrigger size="sm" className="w-[9.5rem]" aria-label="Storefront">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end">
-          {countries.map((country) => (
-            <SelectItem key={country.code} value={country.code}>
-              <span aria-hidden>{countryFlag(country.code)}</span> {country.name}
+      {countryPicker ? (
+        <Select
+          value={selection.country}
+          onValueChange={(country) => (country === ADD_STOREFRONT ? setAdding(true) : select({ country }))}
+        >
+          <SelectTrigger size="sm" className="w-[9.5rem]" aria-label="Storefront">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {countries.map((country) => (
+              <SelectItem key={country.code} value={country.code}>
+                <span aria-hidden>{countryFlag(country.code)}</span> {country.name}
+              </SelectItem>
+            ))}
+            <SelectSeparator />
+            <SelectItem value={ADD_STOREFRONT}>
+              <Plus /> Add storefront…
             </SelectItem>
-          ))}
-          <SelectSeparator />
-          <SelectItem value={ADD_STOREFRONT}>
-            <Plus /> Add storefront…
-          </SelectItem>
-        </SelectContent>
-      </Select>
+          </SelectContent>
+        </Select>
+      ) : null}
       <ToggleGroup
         type="single"
         size="sm"

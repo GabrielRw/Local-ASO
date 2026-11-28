@@ -67,7 +67,11 @@ export function OpportunityValue({ value }: { value: number | null | undefined }
     <MetricValue
       value={value ?? "—"}
       tone={tone}
-      title="Apple Ads popularity still to win: discounted by the difficulty estimate and by the attention your current rank already captures."
+      title={
+        value == null
+          ? "Needs Apple Ads popularity and a difficulty estimate."
+          : "Apple Ads popularity still to win: discounted by the difficulty estimate and by the attention your current rank already captures."
+      }
     />
   );
 }

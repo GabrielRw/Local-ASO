@@ -48,11 +48,26 @@ interface DemandSource {
 }
 
 /**
- * Apple Ads popularity when measured for this exact query; otherwise the local
- * ratings-based estimate, always marked with "~" and never presented as Apple data.
+ * Apple Ads popularity for this exact query. With Apple Ads connected, a query Apple has
+ * not scored reads "—": the ratings-based estimate measures how big the ranking apps are,
+ * not how often the query is searched, so it never stands in for Apple's value. Only
+ * without Apple Ads is that estimate shown, always marked with "~".
  */
 export function demand(source: DemandSource | null | undefined, market?: string): Demand {
   const where = market ? ` in ${market.toUpperCase()}` : "";
+  if (source?.popularityStatus === "unavailable" || source?.popularityStatus === "pending") {
+    return {
+      label: "Popularity",
+      value: "—",
+      score: null,
+      measured: false,
+      tone: "neutral",
+      title:
+        source.popularityStatus === "unavailable"
+          ? `Apple Ads has no popularity for this exact query${where}.`
+          : `Not measured yet${where}: Apple Ads popularity is fetched when the dashboard starts, then every 7 days.`,
+    };
+  }
   if (source?.popularityStatus === "measured" && source.popularity != null) {
     const value = source.popularity;
     if (value <= APPLE_POPULARITY_FLOOR) {
@@ -75,10 +90,7 @@ export function demand(source: DemandSource | null | undefined, market?: string)
     };
   }
   const estimate = source?.volume ?? source?.volumeEstimate ?? null;
-  const reason =
-    source?.popularityStatus === "unavailable"
-      ? `Apple Ads returned no popularity for this keyword${where}. `
-      : "Connect Apple Ads in Paid search to show Apple's popularity. ";
+  const reason = "Connect Apple Ads in Paid search to show Apple's popularity. ";
   return {
     label: "Est. volume",
     value: estimate == null ? "—" : `~${estimate}`,
@@ -111,10 +123,6 @@ export function countryFlag(code: string): string {
 
 export function deviceName(device: Device | string): string {
   return device === "ipad" ? "iPad" : "iPhone";
-}
-
-export function shortOpportunity(value: string): string {
-  return value.replace(/\s*\([^)]*\)/, "");
 }
 
 export function initials(value: string | null | undefined): string {

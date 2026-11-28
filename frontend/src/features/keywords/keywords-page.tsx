@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Plus, RefreshCw, Search } from "lucide-react";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Page } from "@/components/page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -101,13 +102,32 @@ export function KeywordsPage() {
   const marketKey = `${country}:${device}`;
   const trackedCount = Number(data?.targetCounts?.[marketKey] ?? 0);
   const selected = marketRows.find((row) => row.targetId === selectedId) ?? null;
+
+  // Opened from Opportunities (?focus=targetId): show that keyword and its history once.
+  const [params, setParams] = useSearchParams();
+  const focus = Number(params.get("focus")) || null;
+  useEffect(() => {
+    if (focus == null) return;
+    const row = marketRows.find((item) => item.targetId === focus);
+    if (!row) return;
+    setSelectedId(row.targetId);
+    setFilter(row.keyword);
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("focus");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [focus, marketRows, setParams]);
   const market = `${countryFlag(country)} ${country.toUpperCase()} · ${deviceName(device)}`;
 
   const onSort = (field: SortField) =>
     setSort((current) =>
       current.field === field
         ? { field, direction: current.direction === "asc" ? "desc" : "asc" }
-        : { field, direction: "asc" },
+        : { field, direction: field === "opportunity" ? "desc" : "asc" },
     );
 
   const runCheck = useMutation({
@@ -173,6 +193,20 @@ export function KeywordsPage() {
     },
     onError: (error) => toast.error(error.message),
     onSettled: () => setPendingStop(null),
+  });
+
+  const markCompetitor = useMutation({
+    mutationFn: (row: Ranking) =>
+      apiPost("/api/targets/competitor-brand", { targetId: row.targetId, competitor: !row.competitorBrand }),
+    onSuccess: async (_result, row) => {
+      toast.success(
+        row.competitorBrand
+          ? `“${row.keyword}” is no longer marked as a competitor's name.`
+          : `“${row.keyword}” marked as a competitor's name in every storefront: an Apple Ads target only.`,
+      );
+      await invalidate.bootstrap();
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const addCompetitor = useMutation({
@@ -280,7 +314,7 @@ export function KeywordsPage() {
               <CardTitle className="text-base">Rankings</CardTitle>
               <CardDescription>
                 {market} · {marketRows.length} keyword{marketRows.length === 1 ? "" : "s"}. Popularity is Apple Ads&rsquo;
-                score for the exact query; values with ~ are local estimates.
+                score for the exact query; values with ~ are local estimates, shown only without Apple Ads.
               </CardDescription>
               <CardAction>
                 <div className="relative">
@@ -321,7 +355,8 @@ export function KeywordsPage() {
                   onAddCompetitor={(app) => addCompetitor.mutate(app)}
                   addingCompetitor={addCompetitor.isPending}
                   onStopTracking={setPendingStop}
-                  busy={running || stopTracking.isPending}
+                  onToggleCompetitor={(row) => markCompetitor.mutate(row)}
+                  busy={running || stopTracking.isPending || markCompetitor.isPending}
                 />
               ) : (
                 <p className="text-muted-foreground px-6 py-8 text-center text-sm">

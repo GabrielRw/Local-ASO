@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Plus, Star, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Plus, Star, Swords, X } from "lucide-react";
 import { AppIcon } from "@/components/app-icon";
+import { CompetitorBadge } from "@/components/competitor-badge";
 import { InfoTip } from "@/components/info-tip";
 import { DemandValue, DifficultyValue, OpportunityValue } from "@/components/metric";
 import { Button } from "@/components/ui/button";
@@ -180,6 +181,7 @@ export function RankingsTable({
   onAddCompetitor,
   addingCompetitor,
   onStopTracking,
+  onToggleCompetitor,
   busy,
 }: {
   rows: Ranking[];
@@ -193,6 +195,7 @@ export function RankingsTable({
   onAddCompetitor: (app: TopApp) => void;
   addingCompetitor: boolean;
   onStopTracking: (row: Ranking) => void;
+  onToggleCompetitor: (row: Ranking) => void;
   busy: boolean;
 }) {
   const head = { sort, onSort };
@@ -220,16 +223,19 @@ export function RankingsTable({
           return (
             <TableRow key={row.targetId} data-state={selected ? "selected" : undefined}>
               <TableCell className="max-w-64 pl-6">
-                <button
-                  type="button"
-                  aria-pressed={selected}
-                  aria-label={`Show rank history for ${row.keyword}`}
-                  title={row.keyword}
-                  onClick={() => onSelect(row.targetId)}
-                  className="block max-w-full truncate text-left font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
-                >
-                  {row.keyword}
-                </button>
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`Show rank history for ${row.keyword}`}
+                    title={row.keyword}
+                    onClick={() => onSelect(row.targetId)}
+                    className="block min-w-0 truncate text-left font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+                  >
+                    {row.keyword}
+                  </button>
+                  {row.competitorBrand ? <CompetitorBadge /> : null}
+                </div>
               </TableCell>
               <TableCell>
                 <RankCell row={row} state={state} />
@@ -255,7 +261,27 @@ export function RankingsTable({
                 {row.change}
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">{formatDate(row.checkedAt)}</TableCell>
-              <TableCell className="pr-6 text-right">
+              <TableCell className="pr-6 text-right whitespace-nowrap">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={busy}
+                  aria-pressed={row.competitorBrand}
+                  aria-label={
+                    row.competitorBrand
+                      ? `${row.keyword} is not a competitor's name`
+                      : `Mark ${row.keyword} as a competitor's name`
+                  }
+                  title={
+                    row.competitorBrand
+                      ? "Not a competitor's name: unmark it in every storefront"
+                      : "Mark as a competitor's name (Apple Ads only), in every storefront"
+                  }
+                  className={row.competitorBrand ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}
+                  onClick={() => onToggleCompetitor(row)}
+                >
+                  <Swords />
+                </Button>
                 <Button
                   size="icon-sm"
                   variant="ghost"

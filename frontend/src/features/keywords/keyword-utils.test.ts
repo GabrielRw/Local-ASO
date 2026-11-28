@@ -14,6 +14,7 @@ function row(patch: Partial<Ranking>): Ranking {
   return {
     targetId: 1,
     keyword: "kw",
+    competitorBrand: false,
     country: "us",
     device: "iphone",
     rank: null,

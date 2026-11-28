@@ -421,3 +421,41 @@ def test_retired_feature_endpoints_return_not_found(dashboard: DashboardService)
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_dashboard_marks_a_competitor_brand_in_every_storefront(
+    dashboard: DashboardService,
+) -> None:
+    dashboard.add_keyword_targets(
+        {"appId": 6771773264, "keyword": "Co Star", "countries": ["us", "fr"]}
+    )
+    with session_scope() as session:
+        target_id = list_targets(session, apple_id=6771773264, keyword="co star", country="us")[
+            0
+        ].id
+
+    def marks() -> dict[tuple[str, str], bool]:
+        payload = dashboard.bootstrap(6771773264, "us")
+        return {
+            (row["keyword"], row["country"]): row["competitorBrand"]
+            for row in payload["rankings"]  # type: ignore[union-attr]
+            if row["device"] == "iphone"
+        }
+
+    assert marks()[("Co Star", "fr")] is False
+    assert dashboard.mark_competitor_brand({"targetId": target_id, "competitor": True}) == {
+        "keyword": "Co Star",
+        "competitorBrand": True,
+    }
+    after = marks()
+    # One mark covers the keyword in every storefront, and only that keyword.
+    assert after[("Co Star", "us")] is True
+    assert after[("Co Star", "fr")] is True
+    assert after[("learn astrology", "us")] is False
+
+    dashboard.mark_competitor_brand({"targetId": target_id, "competitor": True})  # idempotent
+    dashboard.mark_competitor_brand({"targetId": target_id, "competitor": False})
+    assert marks()[("Co Star", "us")] is False
+
+    with pytest.raises(ValueError, match="unknown tracking target"):
+        dashboard.mark_competitor_brand({"targetId": 999_999})

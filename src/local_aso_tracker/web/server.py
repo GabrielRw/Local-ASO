@@ -65,12 +65,14 @@ from local_aso_tracker.repositories.data import (
     add_keyword,
     add_storefront,
     add_target,
+    competitor_brand_keys,
     filter_targets_due_for_check,
     get_listing_metadata,
     latest_pairs,
     list_targets,
     normalize_keyword,
     save_listing_metadata,
+    set_competitor_brand,
     successful_checks,
 )
 from local_aso_tracker.repositories.keyword_popularity import popularity_lookup
@@ -1316,6 +1318,18 @@ class DashboardService:
             target.active = False
         return {"deactivated": target_id}
 
+    def mark_competitor_brand(self, body: dict[str, Any]) -> dict[str, object]:
+        """Mark or unmark a keyword as a competitor's brand for the target's app."""
+
+        target_id = int(body["targetId"])
+        competitor = bool(body.get("competitor", True))
+        with session_scope() as session:
+            target = session.get(TrackingTarget, target_id)
+            if target is None:
+                raise ValueError(f"unknown tracking target: {target_id}")
+            set_competitor_brand(session, target, competitor)
+            return {"keyword": target.keyword.keyword, "competitorBrand": competitor}
+
     def check(self, body: dict[str, Any]) -> dict[str, object]:
         app_id = int(body["appId"])
         country = str(body["country"]) if body.get("country") else None
@@ -1360,11 +1374,15 @@ class DashboardService:
     def _rankings(cls, session: Session, rows: list[RankingRow]) -> list[dict[str, object]]:
         measurements = popularity_lookup(session, (_popularity_key(row) for row in rows))
         apple_ads = popularity_configured() if rows else False
+        brands = competitor_brand_keys(session, (row.target.app_id for row in rows))
         return [
             cls._ranking(
                 row,
                 measurements.get(_popularity_key(row)),
                 apple_ads=apple_ads,
+                competitor_brand=(
+                    (row.target.app_id, row.target.keyword.normalized_keyword) in brands
+                ),
             )
             for row in rows
         ]
@@ -1375,17 +1393,22 @@ class DashboardService:
         popularity: KeywordPopularity | None = None,
         *,
         apple_ads: bool = False,
+        competitor_brand: bool = False,
     ) -> dict[str, object]:
         """``popularityStatus``: Apple's value is "measured", Apple has none ("unavailable"),
         Apple Ads is connected but has not been asked yet ("pending"), or None without
         Apple Ads, the only case where the dashboard falls back to the local estimate.
 
         ``opportunity``: Apple popularity still to win (see ``popularity_opportunity``),
-        None without Apple's value or a difficulty estimate, never from the local estimate."""
+        None without Apple's value or a difficulty estimate, never from the local estimate.
+
+        ``competitorBrand``: the user marked the keyword as another app's name, which
+        App Review keeps out of metadata, so it is an Apple Ads target only."""
 
         return {
             "targetId": row.target.id,
             "keyword": row.target.keyword.keyword,
+            "competitorBrand": competitor_brand,
             "country": row.target.storefront.country_code,
             "device": row.target.device,
             "rank": row.latest.rank,
@@ -1636,6 +1659,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "/api/apps/deactivate": self.service.deactivate_app,
                 "/api/check": self.service.check,
                 "/api/targets/deactivate": self.service.deactivate_target,
+                "/api/targets/competitor-brand": self.service.mark_competitor_brand,
                 "/api/onboarding/complete": self.service.finish_onboarding,
                 "/api/settings/agent": self.service.save_agent_provider,
                 "/api/apple-ads/discover": self.service.discover_apple_ads_accounts,

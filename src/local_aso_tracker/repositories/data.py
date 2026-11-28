@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select
@@ -11,6 +12,7 @@ from local_aso_tracker.config import validate_country_code, validate_device
 from local_aso_tracker.models import (
     App,
     AppArtwork,
+    CompetitorBrandKeyword,
     Keyword,
     ListingMetadata,
     RankCheck,
@@ -379,6 +381,39 @@ def latest_pairs(
         target_id: (items[-1], items[-2] if len(items) > 1 else None)
         for target_id, items in grouped.items()
     }
+
+
+def competitor_brand_keys(session: Session, app_ids: Iterable[int]) -> set[tuple[int, str]]:
+    """(app row ID, normalized keyword) of every keyword marked as a competitor's brand."""
+
+    ids = sorted(set(app_ids))
+    if not ids:
+        return set()
+    rows = session.execute(
+        select(CompetitorBrandKeyword.app_id, CompetitorBrandKeyword.normalized_keyword).where(
+            CompetitorBrandKeyword.app_id.in_(ids)
+        )
+    )
+    return {(app_id, keyword) for app_id, keyword in rows}
+
+
+def set_competitor_brand(session: Session, target: TrackingTarget, competitor: bool) -> None:
+    """Mark or unmark the target's keyword as a competitor's brand for its app.
+
+    The mark is per app and keyword, so it covers every storefront and device.
+    """
+
+    key = target.keyword.normalized_keyword
+    existing = session.scalar(
+        select(CompetitorBrandKeyword).where(
+            CompetitorBrandKeyword.app_id == target.app_id,
+            CompetitorBrandKeyword.normalized_keyword == key,
+        )
+    )
+    if competitor and existing is None:
+        session.add(CompetitorBrandKeyword(app_id=target.app_id, normalized_keyword=key))
+    elif not competitor and existing is not None:
+        session.delete(existing)
 
 
 def filter_targets_due_for_check(

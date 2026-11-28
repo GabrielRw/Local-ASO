@@ -69,6 +69,8 @@ export interface TopApp {
 export interface Ranking {
   targetId: number;
   keyword: string;
+  /** Marked by the user as another app's name: an Apple Ads target only, in every storefront. */
+  competitorBrand: boolean;
   country: string;
   device: Device;
   rank: number | null;

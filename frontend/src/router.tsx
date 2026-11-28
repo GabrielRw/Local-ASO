@@ -8,6 +8,9 @@ const AuditPage = lazy(() => import("@/features/audit/audit-page").then((m) => (
 const KeywordsPage = lazy(() =>
   import("@/features/keywords/keywords-page").then((m) => ({ default: m.KeywordsPage })),
 );
+const OpportunitiesPage = lazy(() =>
+  import("@/features/opportunities/opportunities-page").then((m) => ({ default: m.OpportunitiesPage })),
+);
 const OptimizePage = lazy(() =>
   import("@/features/optimize/optimize-page").then((m) => ({ default: m.OptimizePage })),
 );
@@ -45,6 +48,7 @@ export const router = createHashRouter([
       { index: true, element: <RedirectHome /> },
       { path: "audit", element: <View><AuditPage /></View> },
       { path: "keywords", element: <View><KeywordsPage /></View> },
+      { path: "opportunities", element: <View><OpportunitiesPage /></View> },
       { path: "optimize", element: <View><OptimizePage /></View> },
       { path: "competitors", element: <View><CompetitorsPage /></View> },
       { path: "paid", element: <View><PaidPage /></View> },

@@ -34,6 +34,7 @@ function row(patch: Partial<Ranking>): Ranking {
     change: "—",
     checkedAt: "2026-11-10T10:00:00Z",
     opportunity: null,
+    signal: null,
     status: "success",
     error: null,
     ...patch,
@@ -224,5 +225,16 @@ describe("reducedStorefronts", () => {
   it("falls back to the two storefronts that track the most keywords", () => {
     expect(codes(reducedStorefronts(summaries, "us", []))).toEqual(["ch", "fr", "us"]);
     expect(codes(reducedStorefronts(summaries, "ch", []))).toEqual(["ch", "fr", "ca"]);
+  });
+});
+
+describe("sortRankings by signal", () => {
+  it("sorts the rank-based label alphabetically, empty last", () => {
+    const rows = [
+      row({ targetId: 1, keyword: "b", signal: "Growth range (#11-50)" }),
+      row({ targetId: 2, keyword: "a", signal: "Defend visibility (#1-10)" }),
+      row({ targetId: 3, keyword: "c", signal: null }),
+    ];
+    expect(sortRankings(rows, "signal", "asc").map((item) => item.keyword)).toEqual(["a", "b", "c"]);
   });
 });

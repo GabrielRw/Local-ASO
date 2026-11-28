@@ -491,6 +491,19 @@ class KeywordPopularity(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class AppleAdsUnsupportedMarket(Base):
+    """An App Store storefront Apple Ads does not serve, as Apple last reported it.
+
+    Keywords there can never get Apple's popularity, so the dashboard shows the local
+    estimate for them instead of waiting for a measurement that will not come.
+    """
+
+    __tablename__ = "apple_ads_unsupported_markets"
+
+    country_code: Mapped[str] = mapped_column(String(2), primary_key=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class CompetitorBrandKeyword(Base):
     """A keyword the user marked as another app's brand name, for one of their apps.
 

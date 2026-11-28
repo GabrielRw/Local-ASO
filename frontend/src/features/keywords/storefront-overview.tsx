@@ -113,7 +113,7 @@ export function StorefrontOverview({
           </span>
         </CardDescription>
       </CardHeader>
-      <CardContent id="storefront-overview" className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 lg:grid-cols-3">
+      <CardContent id="storefront-overview" className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2 xl:grid-cols-3">
         {shown.map((item) => (
           <StorefrontRow
             key={item.code}
@@ -156,7 +156,7 @@ function StorefrontRow({
         aria-label={summary}
         title={summary}
         onClick={() => onSelect(item.code)}
-        className="focus-visible:ring-ring grid grid-cols-[minmax(0,8.5rem)_1fr_auto] items-center gap-3 rounded-md py-1 pl-2 text-left text-sm focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50"
+        className="focus-visible:ring-ring grid w-full grid-cols-[minmax(0,7.5rem)_minmax(3rem,1fr)_auto] items-center gap-3 rounded-md py-1 pl-2 text-left text-sm focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50"
       >
         <span className={cn("flex min-w-0 items-center gap-1.5", !item.top10 && !selected && "text-muted-foreground")}>
           <span aria-hidden>{countryFlag(item.code)}</span>

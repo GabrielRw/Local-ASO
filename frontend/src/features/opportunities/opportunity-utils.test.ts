@@ -26,6 +26,7 @@ function row(keyword: string, country: string, patch: Partial<Ranking> = {}): Ra
     change: "—",
     checkedAt: "2026-11-28T10:00:00Z",
     opportunity: null,
+    signal: null,
     status: "success",
     error: null,
     ...patch,

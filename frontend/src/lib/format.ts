@@ -50,8 +50,9 @@ interface DemandSource {
 /**
  * Apple Ads popularity for this exact query. With Apple Ads connected, a query Apple has
  * not scored reads "—": the ratings-based estimate measures how big the ranking apps are,
- * not how often the query is searched, so it never stands in for Apple's value. Only
- * without Apple Ads is that estimate shown, always marked with "~".
+ * not how often the query is searched, so it never stands in for Apple's value. The
+ * estimate is shown, always marked with "~", only without Apple Ads or in a storefront
+ * Apple Ads does not serve ("unsupported").
  */
 export function demand(source: DemandSource | null | undefined, market?: string): Demand {
   const where = market ? ` in ${market.toUpperCase()}` : "";
@@ -90,7 +91,10 @@ export function demand(source: DemandSource | null | undefined, market?: string)
     };
   }
   const estimate = source?.volume ?? source?.volumeEstimate ?? null;
-  const reason = "Connect Apple Ads in Paid search to show Apple's popularity. ";
+  const reason =
+    source?.popularityStatus === "unsupported"
+      ? `Apple Ads isn't available${where}, so Apple has no popularity there. `
+      : "Connect Apple Ads in Paid search to show Apple's popularity. ";
   return {
     label: "Est. volume",
     value: estimate == null ? "—" : `~${estimate}`,
@@ -123,6 +127,11 @@ export function countryFlag(code: string): string {
 
 export function deviceName(device: Device | string): string {
   return device === "ipad" ? "iPad" : "iPhone";
+}
+
+/** "Defend visibility (#1-10)" → "Defend visibility". */
+export function shortOpportunity(value: string): string {
+  return value.replace(/\s*\([^)]*\)/, "");
 }
 
 export function initials(value: string | null | undefined): string {

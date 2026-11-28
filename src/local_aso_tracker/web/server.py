@@ -75,7 +75,10 @@ from local_aso_tracker.repositories.data import (
     set_competitor_brand,
     successful_checks,
 )
-from local_aso_tracker.repositories.keyword_popularity import popularity_lookup
+from local_aso_tracker.repositories.keyword_popularity import (
+    popularity_lookup,
+    unsupported_markets,
+)
 from local_aso_tracker.repositories.niches import (
     add_niche_country,
     add_niche_keywords,
@@ -105,6 +108,7 @@ from local_aso_tracker.services.analytics import (
     calculate_metric_trends,
     calculate_summary,
     movement,
+    opportunity_group,
 )
 from local_aso_tracker.services.apple_ads import (
     apple_ads_status,
@@ -1374,12 +1378,14 @@ class DashboardService:
     def _rankings(cls, session: Session, rows: list[RankingRow]) -> list[dict[str, object]]:
         measurements = popularity_lookup(session, (_popularity_key(row) for row in rows))
         apple_ads = popularity_configured() if rows else False
+        unsupported = unsupported_markets(session) if apple_ads else set()
         brands = competitor_brand_keys(session, (row.target.app_id for row in rows))
         return [
             cls._ranking(
                 row,
                 measurements.get(_popularity_key(row)),
                 apple_ads=apple_ads,
+                unsupported_market=row.target.storefront.country_code.upper() in unsupported,
                 competitor_brand=(
                     (row.target.app_id, row.target.keyword.normalized_keyword) in brands
                 ),
@@ -1393,11 +1399,13 @@ class DashboardService:
         popularity: KeywordPopularity | None = None,
         *,
         apple_ads: bool = False,
+        unsupported_market: bool = False,
         competitor_brand: bool = False,
     ) -> dict[str, object]:
         """``popularityStatus``: Apple's value is "measured", Apple has none ("unavailable"),
-        Apple Ads is connected but has not been asked yet ("pending"), or None without
-        Apple Ads, the only case where the dashboard falls back to the local estimate.
+        Apple Ads is connected but has not been asked yet ("pending"), Apple Ads does not
+        serve this storefront ("unsupported"), or None without Apple Ads. The dashboard
+        falls back to the local estimate only for None and "unsupported".
 
         ``opportunity``: Apple popularity still to win (see ``popularity_opportunity``),
         None without Apple's value or a difficulty estimate, never from the local estimate.
@@ -1417,7 +1425,7 @@ class DashboardService:
             "volumeEstimate": row.latest.estimate.volume if row.latest.estimate else None,
             "popularity": popularity.popularity if popularity else None,
             "popularityStatus": (
-                ("pending" if apple_ads else None)
+                (("unsupported" if unsupported_market else "pending") if apple_ads else None)
                 if popularity is None
                 else "measured"
                 if popularity.popularity is not None
@@ -1443,6 +1451,8 @@ class DashboardService:
             "previousFound": row.previous.found if row.previous else None,
             "change": movement(row.latest, row.previous),
             "checkedAt": _iso_utc(row.latest.checked_at),
+            # Rank-based label, shown instead of Opportunity when Apple Ads isn't connected.
+            "signal": opportunity_group(row.latest),
             "opportunity": popularity_opportunity(
                 popularity.popularity if popularity else None,
                 row.latest.estimate.difficulty if row.latest.estimate else None,

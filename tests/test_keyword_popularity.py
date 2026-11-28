@@ -227,6 +227,58 @@ def test_refresh_skips_storefronts_apple_ads_does_not_serve(database: None) -> N
     assert _stored() == {}
 
 
+def test_unsupported_storefronts_are_remembered_and_not_asked_again(
+    database: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_aso_tracker.models import RankCheck
+    from local_aso_tracker.repositories.data import latest_pairs
+    from local_aso_tracker.repositories.keyword_popularity import unsupported_markets
+    from local_aso_tracker.services.analytics import RankingRow
+    from local_aso_tracker.web import server
+
+    calls: list[str] = []
+
+    class UnsupportedMarketClient(FakeClient):
+        def keyword_suggestions(
+            self, *args: object, **kwargs: object
+        ) -> list[AppleAdsSuggestionRecord]:
+            calls.append(str(kwargs["country"]))
+            raise AppleAdsError(
+                "Apple Ads API returned HTTP 400: INVALID_INPUT countriesOrRegions "
+                "Invalid storefront name:US"
+            )
+
+    client = UnsupportedMarketClient({})
+    refresh_keyword_popularity(country="us", client=client)  # type: ignore[arg-type]
+    assert calls == ["US"]
+    with session_scope() as session:
+        assert unsupported_markets(session) == {"US"}
+
+    # Within the refresh window the storefront is skipped without asking Apple again.
+    summary = refresh_keyword_popularity(country="us", client=client, force=True)  # type: ignore[arg-type]
+    assert calls == ["US"] and summary.requested == 0
+
+    # The dashboard then reports "unsupported", so the local estimate is shown there.
+    with session_scope() as session:
+        target = list_targets(session, country="us", device="iphone", active_only=True)[0]
+        session.add(
+            RankCheck(
+                tracking_target_id=target.id,
+                checked_at=datetime.now(UTC),
+                rank=None,
+                found=False,
+                result_limit=200,
+                response_time_ms=1,
+                status="success",
+            )
+        )
+        session.flush()
+        rows = [RankingRow(target, *latest_pairs(session, [target])[target.id])]
+        monkeypatch.setattr(server, "popularity_configured", lambda: True)
+        status = server.DashboardService._rankings(session, rows)[0]["popularityStatus"]
+        assert status == "unsupported"
+
+
 def test_dashboard_rankings_mark_unmeasured_popularity_pending_with_apple_ads(
     database: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -131,6 +131,8 @@ def test_dashboard_bootstrap_uses_real_local_rank_data(dashboard: DashboardServi
     assert "us:iphone" in payload["metricTrends30d"]  # type: ignore[operator]
     assert rankings[0]["device"] == "iphone"
     assert rankings[0]["topApps"][0]["name"] == "First app"  # type: ignore[index]
+    # Without Apple Ads the table shows the rank-based Signal instead of Opportunity.
+    assert isinstance(rankings[0]["signal"], str)  # type: ignore[index]
     assert rankings[0]["topApps"][1]["appId"] == 222  # type: ignore[index]
     assert rankings[0]["topApps"][0]["averageRating"] == 4.8  # type: ignore[index]
     assert rankings[0]["topApps"][0]["ratingCount"] == 2_400_000  # type: ignore[index]

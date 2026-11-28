@@ -47,6 +47,13 @@ describe("demand", () => {
     expect(demand({ popularityStatus: "pending", volumeEstimate: 52 }).title).toContain("Not measured yet");
   });
 
+  it("shows the marked estimate where Apple Ads does not serve the storefront", () => {
+    const value = demand({ popularityStatus: "unsupported", volumeEstimate: 41 }, "kz");
+    expect(value.value).toBe("~41");
+    expect(value.measured).toBe(false);
+    expect(value.title).toContain("Apple Ads isn't available in KZ");
+  });
+
   it("does not invent a value when nothing is known", () => {
     expect(demand({ popularityStatus: null, volumeEstimate: null }).value).toBe("—");
   });

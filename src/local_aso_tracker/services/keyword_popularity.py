@@ -24,8 +24,10 @@ from local_aso_tracker.models import App, AppleAdsAccount, AppleAdsCampaign
 from local_aso_tracker.repositories.data import list_targets, normalize_keyword
 from local_aso_tracker.repositories.keyword_popularity import (
     is_stale,
+    mark_unsupported_market,
     popularity_lookup,
     store_popularity,
+    unsupported_markets,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,6 +197,10 @@ def _measure_terms(
             for key, text in sorted(terms.items())
             if force or is_stale(stored.get(key), cutoff=cutoff)
         ]
+        # Storefronts Apple Ads said it does not serve are skipped until the refresh window
+        # passes, then asked again in case Apple added them.
+        known_unsupported = unsupported_markets(session, since=cutoff)
+        due = [(key, text) for key, text in due if key[1].upper() not in known_unsupported]
         promoted_app_id = _stored_promoted_app_id(session, account_id) if due else None
         fallback_app_id = _tracked_app_id(session, settings.default_app_id) if due else None
 
@@ -225,6 +231,8 @@ def _measure_terms(
             if _is_unsupported_market(exc):
                 # Apple Ads does not serve every App Store storefront; skip the market.
                 unsupported.add(market)
+                with session_scope() as session:
+                    mark_unsupported_market(session, market, checked_at=current)
                 logger.info("Apple Ads does not support storefront %s; skipping it", market)
                 continue
             failures += 1

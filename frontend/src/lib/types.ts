@@ -6,7 +6,8 @@ export type Device = "iphone" | "ipad";
  * "measured": Apple's value; "unavailable": Apple has none for this query; "pending":
  * Apple Ads is connected but has not been asked yet; null: Apple Ads is not connected.
  */
-export type PopularityStatus = "measured" | "unavailable" | "pending" | null;
+/** "unsupported": Apple Ads does not serve the storefront, so only the local estimate exists. */
+export type PopularityStatus = "measured" | "unavailable" | "pending" | "unsupported" | null;
 
 export interface AppSummary {
   id: number;
@@ -89,6 +90,8 @@ export interface Ranking {
   checkedAt: string;
   /** Apple popularity still to win (0–100); null without Apple's value or a difficulty estimate. */
   opportunity: number | null;
+  /** Rank-based label (Defend, Close wins…), shown instead of Opportunity without Apple Ads. */
+  signal: string | null;
   status: string;
   error: string | null;
 }

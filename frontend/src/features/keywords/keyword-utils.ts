@@ -4,7 +4,7 @@
 import { demandSortValue } from "@/lib/format";
 import type { Country, Device, HistoryPoint, MetricTrend, Ranking } from "@/lib/types";
 
-export type SortField = "keyword" | "rank" | "popularity" | "difficulty" | "top5" | "change" | "opportunity" | "updated";
+export type SortField = "keyword" | "rank" | "popularity" | "difficulty" | "top5" | "change" | "opportunity" | "signal" | "updated";
 export type SortDirection = "asc" | "desc";
 
 export function rankingSortValue(row: Ranking, field: SortField): number | string | null {
@@ -29,6 +29,8 @@ export function rankingSortValue(row: Ranking, field: SortField): number | strin
     }
     case "opportunity":
       return row.opportunity ?? null;
+    case "signal":
+      return row.signal ? row.signal.toLocaleLowerCase() : null;
     case "updated": {
       const time = +new Date(row.checkedAt);
       return Number.isFinite(time) ? time : null;

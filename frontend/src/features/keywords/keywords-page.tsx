@@ -101,6 +101,8 @@ export function KeywordsPage() {
   );
   const competitorsAhead = useMemo(() => losingTo(marketRows, appId), [marketRows, appId]);
   const summary = useMemo(() => summarizeRanks(marketRows), [marketRows]);
+  // Any status means Apple Ads is connected; null everywhere means it isn't (estimates only).
+  const appleAdsPopularity = useMemo(() => rankings.some((row) => row.popularityStatus != null), [rankings]);
   const storefronts = useMemo(
     () => storefrontSummaries(rankings, data?.countries ?? [], data?.targetCounts ?? {}, device),
     [rankings, data?.countries, data?.targetCounts, device],
@@ -375,6 +377,7 @@ export function KeywordsPage() {
                   onStopTracking={setPendingStop}
                   onToggleCompetitor={(row) => markCompetitor.mutate(row)}
                   busy={running || stopTracking.isPending || markCompetitor.isPending}
+                  showOpportunity={appleAdsPopularity}
                 />
               ) : (
                 <p className="text-muted-foreground px-6 py-8 text-center text-sm">

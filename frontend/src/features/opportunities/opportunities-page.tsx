@@ -1,7 +1,7 @@
 import { Fragment, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate } from "react-router";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Lightbulb, Search, Store } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, Lightbulb, Megaphone, Search, Store } from "lucide-react";
 import { AppIcon } from "@/components/app-icon";
 import { CompetitorBadge } from "@/components/competitor-badge";
 import { InfoTip, type MetricExplanation } from "@/components/info-tip";
@@ -68,6 +68,7 @@ export function OpportunitiesPage() {
   const [selection] = useSelection({ appId: data?.selectedAppId, country: data?.selectedCountry });
   const { appId, device } = selection;
   const navigate = useNavigate();
+  const location = useLocation();
 
   const rows = useMemo(() => (data?.rankings ?? []).filter((row) => row.device === device), [data?.rankings, device]);
   const plan = useMemo(() => actionPlan(rows), [rows]);
@@ -156,10 +157,19 @@ export function OpportunitiesPage() {
                   </PlanColumn>
                 </div>
               ) : (
-                <p className="text-muted-foreground text-sm">
-                  Opportunities need Apple&rsquo;s popularity: connect Apple Ads in Paid search. The ratings-based estimate is
-                  never used for them.
-                </p>
+                <Alert>
+                  <Megaphone />
+                  <AlertTitle>Connect Apple Ads to see opportunities</AlertTitle>
+                  <AlertDescription className="grid gap-3">
+                    <p>
+                      Opportunity scores use Apple&rsquo;s own search popularity, read-only from your Apple Ads account. The
+                      ratings-based estimate is never used for them. Ranks and coverage below work without it.
+                    </p>
+                    <Button size="sm" variant="outline" className="w-fit" onClick={() => navigate({ pathname: "/paid", search: location.search })}>
+                      Set up in Paid search
+                    </Button>
+                  </AlertDescription>
+                </Alert>
               )}
             </CardContent>
           </Card>

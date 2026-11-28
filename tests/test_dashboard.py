@@ -123,7 +123,8 @@ def test_dashboard_bootstrap_uses_real_local_rank_data(dashboard: DashboardServi
     rankings = payload["rankings"]
     assert isinstance(rankings, list)
     assert rankings[0]["rank"] == 26
-    assert rankings[0]["opportunity"] == "Growth opportunities (21-50)"
+    # No Apple Ads popularity here, so no opportunity score: never one from the estimate.
+    assert rankings[0]["opportunity"] is None
     assert payload["targetCounts"]["us:iphone"] == 15  # type: ignore[index]
     assert payload["targetCounts"]["us:ipad"] == 0  # type: ignore[index]
     assert "us:iphone" in payload["metricTrends"]  # type: ignore[operator]

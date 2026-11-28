@@ -27,17 +27,24 @@ describe("demand", () => {
     expect(demand({ popularity: 41, popularityStatus: "measured" }).value).toBe("41");
   });
 
-  it("marks local estimates with ~ and never as Apple data", () => {
+  it("without Apple Ads, marks local estimates with ~ and never as Apple data", () => {
     const value = demand({ popularityStatus: null, volumeEstimate: 48 });
     expect(value.value).toBe("~48");
     expect(value.measured).toBe(false);
     expect(value.title).toContain("not Apple search volume");
   });
 
-  it("explains when Apple had no value", () => {
-    expect(demand({ popularityStatus: "unavailable", volumeEstimate: 30 }).title).toContain(
-      "Apple Ads returned no popularity",
+  it("never stands an estimate in for Apple's value once Apple Ads is connected", () => {
+    for (const popularityStatus of ["unavailable", "pending"] as const) {
+      const value = demand({ popularityStatus, volumeEstimate: 52 });
+      expect(value.value).toBe("—");
+      expect(value.score).toBeNull();
+      expect(value.measured).toBe(false);
+    }
+    expect(demand({ popularityStatus: "unavailable", volumeEstimate: 52 }).title).toContain(
+      "Apple Ads has no popularity",
     );
+    expect(demand({ popularityStatus: "pending", volumeEstimate: 52 }).title).toContain("Not measured yet");
   });
 
   it("does not invent a value when nothing is known", () => {

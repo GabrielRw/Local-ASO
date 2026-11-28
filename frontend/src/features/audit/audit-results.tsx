@@ -231,7 +231,7 @@ export function RecommendedKeywords({
         <CardTitle className="text-base">Recommended keywords</CardTitle>
         <CardDescription>
           Checked against Apple. Popularity is Apple Ads&rsquo; score for the exact query; values with ~ are local
-          ratings-based estimates. Sorted by opportunity.
+          ratings-based estimates, shown only without Apple Ads. Sorted by opportunity.
         </CardDescription>
         <CardAction>
           <Button

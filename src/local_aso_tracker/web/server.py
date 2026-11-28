@@ -103,7 +103,6 @@ from local_aso_tracker.services.analytics import (
     calculate_metric_trends,
     calculate_summary,
     movement,
-    opportunity_group,
 )
 from local_aso_tracker.services.apple_ads import (
     apple_ads_status,
@@ -127,6 +126,10 @@ from local_aso_tracker.services.coverage import (
 )
 from local_aso_tracker.services.estimates import ESTIMATE_VERSION
 from local_aso_tracker.services.health import assess_listing
+from local_aso_tracker.services.keyword_popularity import (
+    popularity_configured,
+    popularity_opportunity,
+)
 from local_aso_tracker.services.listing_localization import (
     approve_localization,
     generate_localization_drafts,
@@ -1356,10 +1359,30 @@ class DashboardService:
     @classmethod
     def _rankings(cls, session: Session, rows: list[RankingRow]) -> list[dict[str, object]]:
         measurements = popularity_lookup(session, (_popularity_key(row) for row in rows))
-        return [cls._ranking(row, measurements.get(_popularity_key(row))) for row in rows]
+        apple_ads = popularity_configured() if rows else False
+        return [
+            cls._ranking(
+                row,
+                measurements.get(_popularity_key(row)),
+                apple_ads=apple_ads,
+            )
+            for row in rows
+        ]
 
     @staticmethod
-    def _ranking(row: RankingRow, popularity: KeywordPopularity | None = None) -> dict[str, object]:
+    def _ranking(
+        row: RankingRow,
+        popularity: KeywordPopularity | None = None,
+        *,
+        apple_ads: bool = False,
+    ) -> dict[str, object]:
+        """``popularityStatus``: Apple's value is "measured", Apple has none ("unavailable"),
+        Apple Ads is connected but has not been asked yet ("pending"), or None without
+        Apple Ads, the only case where the dashboard falls back to the local estimate.
+
+        ``opportunity``: Apple popularity still to win (see ``popularity_opportunity``),
+        None without Apple's value or a difficulty estimate, never from the local estimate."""
+
         return {
             "targetId": row.target.id,
             "keyword": row.target.keyword.keyword,
@@ -1371,7 +1394,7 @@ class DashboardService:
             "volumeEstimate": row.latest.estimate.volume if row.latest.estimate else None,
             "popularity": popularity.popularity if popularity else None,
             "popularityStatus": (
-                None
+                ("pending" if apple_ads else None)
                 if popularity is None
                 else "measured"
                 if popularity.popularity is not None
@@ -1397,7 +1420,12 @@ class DashboardService:
             "previousFound": row.previous.found if row.previous else None,
             "change": movement(row.latest, row.previous),
             "checkedAt": _iso_utc(row.latest.checked_at),
-            "opportunity": opportunity_group(row.latest),
+            "opportunity": popularity_opportunity(
+                popularity.popularity if popularity else None,
+                row.latest.estimate.difficulty if row.latest.estimate else None,
+                rank=row.latest.rank,
+                found=row.latest.found,
+            ),
             "status": row.latest.status,
             "error": row.latest.error_message,
         }

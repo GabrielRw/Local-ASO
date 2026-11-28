@@ -14,7 +14,7 @@ from local_aso_tracker.apple.ads import (
 from local_aso_tracker.config import update_settings
 from local_aso_tracker.database import run_migrations, session_scope
 from local_aso_tracker.models import KeywordPopularity
-from local_aso_tracker.repositories.data import list_targets, seed_catalog, seed_targets
+from local_aso_tracker.repositories.data import add_app, list_targets, seed_catalog, seed_targets
 from local_aso_tracker.services.keyword_popularity import (
     exact_popularity,
     refresh_keyword_popularity,
@@ -26,12 +26,17 @@ PROMOTED_APP_ID = 6771773264
 class FakeClient:
     """Answers like Apple: the requested term first, then related terms on its scale."""
 
-    def __init__(self, scores: dict[str, int | None], *, fail: bool = False) -> None:
+    def __init__(
+        self, scores: dict[str, int | None], *, fail: bool = False, campaigns: bool = True
+    ) -> None:
         self.scores = scores
         self.fail = fail
+        self.has_campaigns = campaigns
         self.requests: list[tuple[str, str, int]] = []
 
     def campaigns(self, _account_id: int) -> list[AppleAdsCampaignRecord]:
+        if not self.has_campaigns:
+            return []
         return [
             AppleAdsCampaignRecord(
                 campaign_id=1,
@@ -141,6 +146,28 @@ def test_refresh_requires_a_selected_account(database: None) -> None:
         refresh_keyword_popularity(client=FakeClient({}))  # type: ignore[arg-type]
 
 
+def test_refresh_without_campaigns_asks_for_a_tracked_app(database: None) -> None:
+    # An account that never ran a campaign still gets popularity for an app it owns.
+    with session_scope() as session:
+        add_app(session, "Second app", 6700000001)
+    update_settings(default_app_id=6700000001)
+    client = FakeClient({}, campaigns=False)
+
+    summary = refresh_keyword_popularity(country="us", client=client)  # type: ignore[arg-type]
+
+    assert summary.measured == len(_us_keywords())
+    assert {app_id for _, _, app_id in client.requests} == {6700000001}
+
+
+def test_refresh_without_campaigns_falls_back_to_the_first_tracked_app(database: None) -> None:
+    update_settings(default_app_id=6700000002)  # not tracked
+    client = FakeClient({}, campaigns=False)
+
+    refresh_keyword_popularity(country="us", client=client)  # type: ignore[arg-type]
+
+    assert {app_id for _, _, app_id in client.requests} == {PROMOTED_APP_ID}
+
+
 def test_refresh_stops_after_repeated_apple_failures(database: None) -> None:
     summary = refresh_keyword_popularity(country="us", client=FakeClient({}, fail=True))  # type: ignore[arg-type]
     assert summary.failures == 3
@@ -198,3 +225,83 @@ def test_refresh_skips_storefronts_apple_ads_does_not_serve(database: None) -> N
     assert summary.unsupported_markets == ("US",)
     assert summary.failures == 0
     assert _stored() == {}
+
+
+def test_dashboard_rankings_mark_unmeasured_popularity_pending_with_apple_ads(
+    database: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from local_aso_tracker.models import RankCheck
+    from local_aso_tracker.repositories.data import latest_pairs
+    from local_aso_tracker.services.analytics import RankingRow
+    from local_aso_tracker.web import server
+
+    with session_scope() as session:
+        target = list_targets(session, country="us", device="iphone", active_only=True)[0]
+        session.add(
+            RankCheck(
+                tracking_target_id=target.id,
+                checked_at=datetime.now(UTC),
+                rank=None,
+                found=False,
+                result_limit=200,
+                response_time_ms=1,
+                status="success",
+            )
+        )
+        session.flush()
+        rows = [RankingRow(target, *latest_pairs(session, [target])[target.id])]
+
+        # Apple Ads connected, keyword not asked yet: "pending", so no estimate stands in.
+        monkeypatch.setattr(server, "popularity_configured", lambda: True)
+        assert server.DashboardService._rankings(session, rows)[0]["popularityStatus"] == "pending"
+
+        # Without Apple Ads, None: the dashboard may show the local estimate.
+        monkeypatch.setattr(server, "popularity_configured", lambda: False)
+        assert server.DashboardService._rankings(session, rows)[0]["popularityStatus"] is None
+
+
+def test_dashboard_rankings_carry_the_opportunity_score(database: None) -> None:
+    from local_aso_tracker.models import RankCheck, RankEstimate
+    from local_aso_tracker.repositories.data import latest_pairs
+    from local_aso_tracker.services.analytics import RankingRow
+    from local_aso_tracker.web.server import DashboardService
+
+    with session_scope() as session:
+        targets = list_targets(session, country="us", device="iphone", active_only=True)[:4]
+        # (rank, found, difficulty, Apple popularity)
+        cases = [
+            (2, True, 40, 50),
+            (None, False, 40, 50),
+            (None, False, None, 50),
+            (3, True, 40, None),
+        ]
+        for target, (rank, found, difficulty, popularity) in zip(targets, cases, strict=True):
+            check = RankCheck(
+                tracking_target_id=target.id,
+                checked_at=datetime.now(UTC),
+                rank=rank,
+                found=found,
+                result_limit=200,
+                response_time_ms=1,
+                status="success",
+            )
+            if difficulty is not None:
+                check.estimate = RankEstimate(
+                    volume=None, difficulty=difficulty, sample_size=10, model_version="test"
+                )
+            session.add(check)
+            session.add(
+                KeywordPopularity(
+                    normalized_keyword=target.keyword.normalized_keyword,
+                    country_code="US",
+                    popularity=popularity,
+                )
+            )
+        session.flush()
+        pairs = latest_pairs(session, targets)
+        rows = [RankingRow(target, *pairs[target.id]) for target in targets]
+        payload = DashboardService._rankings(session, rows)
+
+    # 50 x (100 - 40) / 100 = 30 to win; #2 already captures 2^-1.2 of it.
+    # Never a score without Apple's popularity or a difficulty estimate.
+    assert [item["opportunity"] for item in payload] == [17, 30, None, None]

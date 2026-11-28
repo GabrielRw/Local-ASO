@@ -107,7 +107,7 @@ export function KeywordsPage() {
     setSort((current) =>
       current.field === field
         ? { field, direction: current.direction === "asc" ? "desc" : "asc" }
-        : { field, direction: "asc" },
+        : { field, direction: field === "opportunity" ? "desc" : "asc" },
     );
 
   const runCheck = useMutation({
@@ -280,7 +280,7 @@ export function KeywordsPage() {
               <CardTitle className="text-base">Rankings</CardTitle>
               <CardDescription>
                 {market} · {marketRows.length} keyword{marketRows.length === 1 ? "" : "s"}. Popularity is Apple Ads&rsquo;
-                score for the exact query; values with ~ are local estimates.
+                score for the exact query; values with ~ are local estimates, shown only without Apple Ads.
               </CardDescription>
               <CardAction>
                 <div className="relative">

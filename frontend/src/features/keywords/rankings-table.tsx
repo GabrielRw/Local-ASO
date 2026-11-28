@@ -1,13 +1,15 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle, Plus, Star, X } from "lucide-react";
 import { AppIcon } from "@/components/app-icon";
-import { DemandValue, DifficultyValue } from "@/components/metric";
+import { InfoTip } from "@/components/info-tip";
+import { DemandValue, DifficultyValue, OpportunityValue } from "@/components/metric";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatCompact, formatDate, rankLabel, shortOpportunity } from "@/lib/format";
+import { formatCompact, formatDate, rankLabel } from "@/lib/format";
 import type { Ranking, TopApp } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { COLUMN_INFO } from "./column-info";
 import { changeTone, type SortDirection, type SortField } from "./keyword-utils";
 
 export interface SortState {
@@ -22,12 +24,6 @@ const changeClass: Record<ReturnType<typeof changeTone>, string> = {
   down: "text-rose-600 dark:text-rose-400",
   flat: "text-muted-foreground",
 };
-
-function signalClass(opportunity: string): string {
-  if (opportunity.startsWith("Defend")) return "text-emerald-600 dark:text-emerald-400";
-  if (opportunity.includes("Growth")) return "text-amber-600 dark:text-amber-400";
-  return "text-muted-foreground";
-}
 
 function SortHead({
   field,
@@ -44,22 +40,26 @@ function SortHead({
 }) {
   const active = sort.field === field;
   const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const info = COLUMN_INFO[field];
   return (
     <TableHead
       className={className}
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
-      <button
-        type="button"
-        onClick={() => onSort(field)}
-        className={cn(
-          "hover:text-foreground focus-visible:ring-ring/50 -mx-1 inline-flex items-center gap-1 rounded-sm px-1 focus-visible:ring-[3px] focus-visible:outline-none",
-          active ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {label}
-        <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
-      </button>
+      <span className="inline-flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => onSort(field)}
+          className={cn(
+            "hover:text-foreground focus-visible:ring-ring/50 -mx-1 inline-flex items-center gap-1 rounded-sm px-1 focus-visible:ring-[3px] focus-visible:outline-none",
+            active ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {label}
+          <Icon className={cn("size-3.5", !active && "opacity-50")} aria-hidden />
+        </button>
+        {info ? <InfoTip info={info} /> : null}
+      </span>
     </TableHead>
   );
 }
@@ -204,9 +204,9 @@ export function RankingsTable({
           <SortHead field="rank" label="Rank" {...head} />
           <SortHead field="popularity" label="Popularity" {...head} />
           <SortHead field="difficulty" label="Difficulty" {...head} />
+          <SortHead field="opportunity" label="Opportunity" {...head} />
           <SortHead field="top5" label="Top 5" {...head} />
           <SortHead field="change" label="Change" {...head} />
-          <SortHead field="signal" label="Signal" {...head} />
           <SortHead field="updated" label="Updated" {...head} />
           <TableHead className="pr-6 text-right">
             <span className="sr-only">Actions</span>
@@ -241,6 +241,9 @@ export function RankingsTable({
                 <DifficultyValue value={row.difficultyEstimate} />
               </TableCell>
               <TableCell>
+                <OpportunityValue value={row.opportunity} />
+              </TableCell>
+              <TableCell>
                 <TopApps
                   apps={row.topApps ?? []}
                   ownAppleId={ownAppleId}
@@ -250,9 +253,6 @@ export function RankingsTable({
               </TableCell>
               <TableCell className={cn("text-sm font-medium tabular-nums", changeClass[changeTone(row.change)])}>
                 {row.change}
-              </TableCell>
-              <TableCell className={cn("text-sm", signalClass(row.opportunity))}>
-                {row.opportunity ? shortOpportunity(row.opportunity) : "—"}
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">{formatDate(row.checkedAt)}</TableCell>
               <TableCell className="pr-6 text-right">

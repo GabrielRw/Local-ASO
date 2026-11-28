@@ -3,6 +3,7 @@ import {
   ChevronsUpDown,
   Gauge,
   KeyRound,
+  Lightbulb,
   Megaphone,
   Monitor,
   Moon,
@@ -46,6 +47,7 @@ import { useLicence } from "@/lib/licence";
 export const appViews = [
   { path: "/audit", label: "Audit", icon: Gauge },
   { path: "/keywords", label: "Keywords", icon: KeyRound },
+  { path: "/opportunities", label: "Opportunities", icon: Lightbulb },
   { path: "/optimize", label: "Optimize", icon: Sparkles },
   { path: "/competitors", label: "Competitors", icon: Swords },
   { path: "/paid", label: "Paid search", icon: Megaphone },

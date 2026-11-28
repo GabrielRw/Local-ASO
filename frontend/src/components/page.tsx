@@ -9,6 +9,7 @@ export function Page({
   children,
   className,
   storefrontPickers = true,
+  countryPicker = true,
 }: {
   title: string;
   actions?: ReactNode;
@@ -16,10 +17,12 @@ export function Page({
   className?: string;
   /** App-independent pages (Niche research) hide the storefront and device pickers. */
   storefrontPickers?: boolean;
+  /** App-wide pages (Opportunities) cover every storefront: device toggle only. */
+  countryPicker?: boolean;
 }) {
   return (
     <>
-      <AppHeader title={title} actions={actions} storefrontPickers={storefrontPickers} />
+      <AppHeader title={title} actions={actions} storefrontPickers={storefrontPickers} countryPicker={countryPicker} />
       <main className={cn("mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 p-4 md:p-6", className)}>{children}</main>
     </>
   );

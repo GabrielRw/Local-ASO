@@ -9,7 +9,7 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from local_aso_tracker.models import KeywordPopularity
+from local_aso_tracker.models import AppleAdsUnsupportedMarket, KeywordPopularity
 
 PopularityKey = tuple[str, str]
 
@@ -57,6 +57,27 @@ def store_popularity(
             index_elements=["normalized_keyword", "country_code"],
             set_={"popularity": popularity, "fetched_at": values["fetched_at"]},
         )
+    )
+
+
+def unsupported_markets(session: Session, *, since: datetime | None = None) -> set[str]:
+    """Upper-case storefronts Apple Ads reported it does not serve (checked after ``since``)."""
+
+    statement = select(AppleAdsUnsupportedMarket.country_code)
+    if since is not None:
+        statement = statement.where(AppleAdsUnsupportedMarket.checked_at >= since)
+    return set(session.scalars(statement))
+
+
+def mark_unsupported_market(
+    session: Session, country: str, *, checked_at: datetime | None = None
+) -> None:
+    when = checked_at or datetime.now(UTC)
+    statement = sqlite_insert(AppleAdsUnsupportedMarket).values(
+        country_code=country.upper(), checked_at=when
+    )
+    session.execute(
+        statement.on_conflict_do_update(index_elements=["country_code"], set_={"checked_at": when})
     )
 
 

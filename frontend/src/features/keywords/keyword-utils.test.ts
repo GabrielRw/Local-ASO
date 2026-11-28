@@ -5,7 +5,9 @@ import {
   dailyKeywordSnapshots,
   localDateKey,
   losingTo,
+  reducedStorefronts,
   sortRankings,
+  storefrontSummaries,
   summarizeRanks,
   trendChip,
 } from "./keyword-utils";
@@ -14,6 +16,7 @@ function row(patch: Partial<Ranking>): Ranking {
   return {
     targetId: 1,
     keyword: "kw",
+    competitorBrand: false,
     country: "us",
     device: "iphone",
     rank: null,
@@ -30,7 +33,8 @@ function row(patch: Partial<Ranking>): Ranking {
     previousFound: null,
     change: "—",
     checkedAt: "2026-11-10T10:00:00Z",
-    opportunity: "",
+    opportunity: null,
+    signal: null,
     status: "success",
     error: null,
     ...patch,
@@ -157,5 +161,80 @@ describe("summarizeRanks", () => {
     expect(
       summarizeRanks([row({ rank: 4, found: true }), row({ rank: 60, found: true }), row({ rank: null, found: false })]),
     ).toEqual({ top10: 1, top50: 1, averageRank: 32 });
+  });
+});
+
+describe("sortRankings by opportunity", () => {
+  it("puts the biggest opportunity first and keywords without one last", () => {
+    const rows = [
+      row({ targetId: 1, keyword: "small", opportunity: 3 }),
+      row({ targetId: 2, keyword: "none", opportunity: null }),
+      row({ targetId: 3, keyword: "big", opportunity: 30 }),
+      row({ targetId: 4, keyword: "won", opportunity: 0 }),
+    ];
+    expect(sortRankings(rows, "opportunity", "desc").map((item) => item.keyword)).toEqual(["big", "small", "won", "none"]);
+  });
+});
+
+describe("storefrontSummaries", () => {
+  it("counts rank bands per storefront on one device, best storefronts first", () => {
+    const rankings = [
+      row({ targetId: 1, country: "fr", rank: 4, found: true }),
+      row({ targetId: 2, country: "fr", rank: 30, found: true }),
+      row({ targetId: 3, country: "fr", rank: 120, found: true }),
+      row({ targetId: 4, country: "fr" }),
+      row({ targetId: 5, country: "de", rank: 2, found: true }),
+      row({ targetId: 6, country: "de", rank: 9, found: true }),
+      row({ targetId: 7, country: "de", device: "ipad", rank: 1, found: true }),
+    ];
+    const countries = [
+      { code: "de", name: "Germany", active: true },
+      { code: "fr", name: "France", active: true },
+      { code: "it", name: "Italy", active: true },
+    ];
+    const counts = { "fr:iphone": 5, "de:iphone": 2, "de:ipad": 1, "it:iphone": 0 };
+    const summaries = storefrontSummaries(rankings, countries, counts, "iphone");
+    expect(summaries.map((item) => [item.code, item.top10, item.top50, item.ranked, item.tracked])).toEqual([
+      ["de", 2, 2, 2, 2],
+      ["fr", 1, 2, 3, 5],
+    ]);
+    expect(summaries[0].best?.rank).toBe(2);
+  });
+});
+
+describe("reducedStorefronts", () => {
+  const summary = (code: string, tracked: number) => ({
+    code,
+    name: code.toUpperCase(),
+    active: true,
+    tracked,
+    top10: 0,
+    top50: 0,
+    ranked: 0,
+    best: null,
+  });
+  // Overview order (best results first), not tracked-count order.
+  const summaries = [summary("no", 34), summary("ch", 138), summary("fr", 93), summary("ca", 86), summary("us", 77)];
+  const codes = (items: ReturnType<typeof reducedStorefronts>) => items.map((item) => item.code);
+
+  it("keeps the selected storefront and the pinned ones, in the overview's order", () => {
+    expect(codes(reducedStorefronts(summaries, "no", ["us", "fr"]))).toEqual(["no", "fr", "us"]);
+    expect(codes(reducedStorefronts(summaries, "fr", ["us", "fr"]))).toEqual(["fr", "us"]);
+  });
+
+  it("falls back to the two storefronts that track the most keywords", () => {
+    expect(codes(reducedStorefronts(summaries, "us", []))).toEqual(["ch", "fr", "us"]);
+    expect(codes(reducedStorefronts(summaries, "ch", []))).toEqual(["ch", "fr", "ca"]);
+  });
+});
+
+describe("sortRankings by signal", () => {
+  it("sorts the rank-based label alphabetically, empty last", () => {
+    const rows = [
+      row({ targetId: 1, keyword: "b", signal: "Growth range (#11-50)" }),
+      row({ targetId: 2, keyword: "a", signal: "Defend visibility (#1-10)" }),
+      row({ targetId: 3, keyword: "c", signal: null }),
+    ];
+    expect(sortRankings(rows, "signal", "asc").map((item) => item.keyword)).toEqual(["a", "b", "c"]);
   });
 });
